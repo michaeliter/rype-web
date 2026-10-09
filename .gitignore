@@ -1,0 +1,11 @@
+target/
+target-test/
+scratch/
+dbg/
+# large or external fixtures (symlinks to ~/rype-work/references, >100 MB files)
+testdata/human400k.fq
+testdata/human.ryxdi
+testdata/HG00133.fastq.gz
+# built wasm (rebuild with build.sh)
+web/rype_mask.js
+web/rype_mask.wasm

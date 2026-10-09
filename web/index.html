@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RYpe in the Browser</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#e2e2dd; --accent:#0f6e56; --accent-fg:#fff; --bad:#a32d2d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --card:#1f1f1e; --line:#33332f; --accent:#4fb59a; --accent-fg:#0d1f19; --bad:#e07b7b; } }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; }
+  main { max-width:760px; margin:0 auto; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:1rem; margin:0 0 10px; }
+  label { display:block; font-weight:600; margin-bottom:6px; }
+  label.inline { display:inline-flex; gap:6px; align-items:center; font-weight:500; margin:0 16px 8px 0; }
+  input[type=file], input[type=text] { width:100%; box-sizing:border-box; }
+  input[type=text], input[type=number] { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  input[type=number] { width:100%; box-sizing:border-box; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-top:10px; }
+  .row > div { flex:1 1 160px; }
+  button { padding:10px 18px; border:0; border-radius:8px; background:var(--accent); color:var(--accent-fg); font-weight:600; font-size:15px; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); padding:6px 12px; font-size:14px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .status { color:var(--muted); font-size:.92rem; margin-top:8px; min-height:1.3em; }
+  .err { color:var(--bad); }
+  progress { width:100%; height:10px; }
+  table { border-collapse:collapse; margin-top:8px; }
+  td { padding:2px 14px 2px 0; }
+  td:first-child { color:var(--muted); }
+  a.dl { display:block; margin-top:8px; font-weight:600; color:var(--accent); }
+  .note { color:var(--muted); font-size:.85rem; margin-top:14px; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:.9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RYpe in the browser</h1>
+  <p class="sub">Host read filtering or multi-bucket classification against a RYpe index, computed entirely in this tab. Reads never leave your machine.</p>
+
+  <div class="card">
+    <h2>1. Index</h2>
+    <label class="inline"><input type="radio" name="src" value="local" checked> Local folder</label>
+    <label class="inline"><input type="radio" name="src" value="url"> URL (read by byte range, nothing stored)</label>
+    <div id="srcLocal"><input id="idx" type="file" webkitdirectory directory multiple></div>
+    <div id="srcUrl" hidden class="row" style="margin-top:4px"><div style="flex:4 1 280px"><input id="idxUrl" type="text" placeholder="https://host/path/index.ryxdi/"></div><div style="flex:0 0 auto"><button id="idxLoad" class="secondary">Load</button></div></div>
+    <div id="idxStatus" class="status">Pick a <code>.ryxdi</code> folder or enter its URL. Shards are read on demand, never loaded whole.</div>
+  </div>
+
+  <div class="card">
+    <h2>2. Reads</h2>
+    <div class="row" style="margin-top:0">
+      <div><label for="fq1">R1 (or single-end) FASTQ, plain or <code>.gz</code></label><input id="fq1" type="file" accept=".fq,.fastq,.gz"></div>
+      <div><label for="fq2">R2 FASTQ (optional)</label><input id="fq2" type="file" accept=".fq,.fastq,.gz"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Operation</h2>
+    <label class="inline"><input type="radio" name="mode" value="filter" checked> Host filter: drop reads that hit the index, download the rest</label>
+    <label class="inline"><input type="radio" name="mode" value="classify"> Classify: download a TSV of read, bucket, score</label>
+    <div class="row">
+      <div><label for="thr">Score threshold</label><input id="thr" type="number" min="0" max="1" step="0.01" value="0.1"></div>
+      <div><label class="inline"><input id="gz" type="checkbox"> gzip output</label></div>
+    </div>
+    <div style="margin-top:14px"><button id="run" disabled>Run</button></div>
+    <div id="runStatus" class="status"></div>
+    <progress id="bar" value="0" max="1" hidden></progress>
+    <table id="stats" hidden>
+      <tr><td>Reads / pairs processed</td><td id="sTotal">0</td></tr>
+      <tr><td id="sAffectedLabel">Removed</td><td id="sAffected">0</td></tr>
+      <tr><td>Index bytes fetched</td><td id="sFetched">–</td></tr>
+      <tr><td>Elapsed</td><td id="sElapsed">0 s</td></tr>
+      <tr><td>Time breakdown</td><td id="sPhases">–</td></tr>
+    </table>
+    <div id="downloads"></div>
+    <p class="note">Input is processed in batches spread across several classifier workers, one pass over the index per batch. Outputs are written to this browser's private storage as they are produced and offered for download at the end.</p>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const worker = new Worker('worker.js?v=' + Date.now());
+  worker.onerror = (e) => { window.__error = e.message; $('runStatus').textContent = 'Error: ' + e.message; };
+let indexReady = false, running = false;
+const fmt = (n) => n.toLocaleString();
+const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
+const radio = (name) => document.querySelector(`input[name=${name}]:checked`).value;
+const r1 = () => $('fq1').files[0] || null, r2 = () => $('fq2').files[0] || null;
+function updateRun() { $('run').disabled = !(indexReady && r1()) || running; }
+
+document.querySelectorAll('input[name=src]').forEach((el) => el.addEventListener('change', () => { $('srcLocal').hidden = radio('src') !== 'local'; $('srcUrl').hidden = radio('src') !== 'url'; }));
+function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); }
+function mountLocal(pairs) {
+  indexReady = false; updateRun(); setIdxStatus('Opening index…');
+  worker.postMessage({ type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), source: 'local', files: pairs.map((p) => p[0]), paths: pairs.map((p) => p[1].split('/').slice(1).join('/') || p[1]) });
+}
+function mountUrl(base) { indexReady = false; updateRun(); setIdxStatus('Fetching manifest and sizing shards…'); worker.postMessage({ type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 }); }
+$('idx').addEventListener('change', (e) => mountLocal([...e.target.files].map((f) => [f, f.webkitRelativePath || f.name])));
+$('idxLoad').addEventListener('click', () => { if ($('idxUrl').value.trim()) mountUrl($('idxUrl').value.trim()); });
+$('fq1').addEventListener('change', updateRun);
+
+function startRun() {
+  running = true; updateRun();
+  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0;
+  $('sAffectedLabel').textContent = radio('mode') === 'classify' ? 'Hits reported' : 'Removed (hit the index)';
+  $('runStatus').textContent = 'Running…'; $('runStatus').classList.remove('err');
+  worker.postMessage({ type: 'run', mode: radio('mode'), r1: r1(), r2: r2(), threshold: parseFloat($('thr').value) || 0.1,
+                       batchBytes: batchBytes(), gzipOut: $('gz').checked });
+}
+$('run').addEventListener('click', startRun);
+
+function showStats(d) {
+  $('sTotal').textContent = fmt(d.total); $('sAffected').textContent = fmt(d.affected);
+  $('sFetched').textContent = d.bytesFetched ? fmtBytes(d.bytesFetched) : '–'; $('sElapsed').textContent = (d.elapsedMs / 1000).toFixed(1) + ' s';
+  if (d.phases) { const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s'; $('sPhases').textContent = `${p.batches} batch(es) on ${p.workers} worker(s): read+gunzip ${s(p.read)}, batching ${s(p.batch)}, classify ${s(p.classify)} CPU, write ${s(p.write)}`; }
+}
+worker.onmessage = (e) => {
+  const d = e.data;
+  if (d.type === 'mounted') {
+    indexReady = true; updateRun();
+    setIdxStatus(`Index loaded (${d.source}): k=${d.k}, w=${d.w}, ${fmt(d.buckets)} bucket(s), ${d.shards} shard(s), ${fmtBytes(d.shardBytes)}; ${d.workers} classifier worker(s).`);
+  } else if (d.type === 'progress') {
+    showStats(d); if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+  } else if (d.type === 'done') {
+    running = false; updateRun(); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
+    for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
+    window.__result = { mode: d.mode, total: d.total, affected: d.affected, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
+    window.__files = d.files;
+  } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
+  } else if (d.type === 'error') {
+    running = false; updateRun();
+    const el = indexReady ? $('runStatus') : $('idxStatus');
+    el.textContent = 'Error: ' + d.msg; el.classList.add('err'); window.__error = d.msg;
+  } else if (d.type === 'log') { console.log('[rype]', d.msg); (window.__log ||= []).push(d.msg); }
+};
+
+// Dev hook: ?demo=1 loads test data from the local server through the same worker
+// paths as the pickers. Options: idx=chr1_slice|wol2_12, src=local|url, paired=1,
+// Parallelism: N classifier workers, each a separate wasm instance holding one
+// batch at a time. rype's working set is ~5.6 bytes of wasm heap per input
+// byte and wasm32 caps each instance at 4 GB, so memory is roughly
+// workers x batch x 6. Defaults: up to 4 workers, 256 MB batches (~8 GB);
+// a single worker gets 512 MB batches. Overrides: ?workers=N&batchMB=N.
+// navigator.deviceMemory is Chromium-only, a power of two clamped to 8, so it can
+// only shrink the defaults on small machines; it never sees headroom above 8 GB.
+// If a classifier still runs out of memory, the coordinator drops it and retries
+// the batch on the remaining workers (see worker.js).
+function workerCount() {
+  const n = parseInt(qs.get('workers'), 10);
+  if (n > 0) return n;
+  const byCores = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
+  const gb = navigator.deviceMemory;
+  const byMemory = gb ? Math.max(1, Math.floor(gb / 4)) : 4; // ~2 GB per worker, half of RAM
+  return Math.min(4, byCores, byMemory);
+}
+function batchBytes() {
+  const small = navigator.deviceMemory && navigator.deviceMemory <= 2;
+  const mb = parseFloat(qs.get('batchMB')) || (small ? 128 : workerCount() > 1 ? 256 : 512);
+  return Math.min(mb, 700) * 1024 * 1024;
+}
+// mode=filter|classify, gz=1|multi (gz input), r1=<testdata file> (overrides stem), gzout=1, batchMB=N, thr=X.
+if (qs.get('demo')) {
+  (async () => {
+    const idx = qs.get('idx') || 'wol2_12', paired = !!qs.get('paired');
+    document.querySelector(`input[name=mode][value=${qs.get('mode') || 'filter'}]`).checked = true;
+    if (qs.get('thr')) $('thr').value = qs.get('thr');
+    if (qs.get('gzout')) $('gz').checked = true;
+    const base = new URL('../testdata/', location.href).href;
+    const get = async (rel, name) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`demo fetch ${rel}: ${r.status}`); return new File([await r.blob()], name || rel.split('/').pop()); };
+    const src = qs.get('src') === 'url' ? 'url' : 'local';
+    document.querySelector(`input[name=src][value=${src}]`).click();
+    if (src === 'url') { $('idxUrl').value = base + idx + '.ryxdi/'; mountUrl($('idxUrl').value); }
+    else {
+      const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
+      const files = await Promise.all(rels.map((r) => get(`${idx}.ryxdi/${r}`)));
+      mountLocal(files.map((f, i) => [f, `${idx}.ryxdi/${rels[i]}`]));
+    }
+    const gz = qs.get('gz') === 'multi' ? '.multi.fq.gz' : qs.get('gz') ? '.fq.gz' : '.fq';
+    const stem = { chr1_slice: 'mixed', human: 'real_mix' }[idx] || 'wol_r1';
+    const r1name = qs.get('r1');
+    const dt = new DataTransfer(); dt.items.add(await get(r1name || `${stem}${gz}`)); $('fq1').files = dt.files;
+    if (paired) { const dt2 = new DataTransfer(); dt2.items.add(await get(`wol_r2${gz}`)); $('fq2').files = dt2.files; }
+    const wait = setInterval(() => { if (indexReady) { clearInterval(wait); updateRun(); startRun(); } }, 50);
+  })();
+}
+</script>
+</body>
+</html>
