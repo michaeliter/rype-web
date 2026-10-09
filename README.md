@@ -155,7 +155,11 @@ leaving the same 3 pairs.
 | native survivor extraction (python, not optimised) | 50.4 s | 1.4 GB |
 | native minimap2 sr, 4 threads, 5 parts | 21.4 s | 3.2 GB |
 | browser, 4 rype workers + 4 part workers, end to end | 52.5-61.8 s | ~8 GB rype, ~12 GB minimap2 phase |
+| miint native SQL cascade, SET threads=4 (read_fastx -> rype_classify -> anti join -> align_minimap2 -> COPY FASTQ) | 175-183 s total: read_fastx 139 s, rype_classify 26 s, align_minimap2 17 s | 15.1 GB |
 
+miint's SQL pipeline gives the same 3 survivors; its time is dominated by materialising the
+10M pairs from gzipped FASTQ into a table (139 s), after which classification is fast (26 s on
+4 threads). SQL used: `test/miint_cascade.sql`.
 The browser overlaps gunzip with classification and never materialises the survivors on
 disk, so it matches native rype alone; the minimap2 phase is small here because rype
 removes 99.97% of a human sample first. Reproduce: `CASES=test/perf-cascade.json npm test`
