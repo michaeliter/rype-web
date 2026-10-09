@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "rype.h"
+#include "fastq.h"
 
 static RypeIndex *g_index = NULL;
 static char g_err[1024];
@@ -34,50 +35,6 @@ size_t mask_index_w(void) { return g_index ? rype_index_w(g_index) : 0; }
 uint32_t mask_index_num_buckets(void) { return g_index ? rype_index_num_buckets(g_index) : 0; }
 void mask_free(void *p) { free(p); }
 
-// One FASTQ record: [start, end) spans all four lines incl. trailing newline.
-typedef struct {
-	size_t start, end;
-	const char *id; size_t id_len;     // header after '@', up to first space/tab
-	const char *seq; size_t seq_len;
-} Rec;
-
-typedef struct { Rec *recs; size_t n; } Parsed;
-
-// Minimal 4-line FASTQ parser. Returns 0 or -1 (error set).
-static int parse_fastq(const char *buf, size_t len, Parsed *out) {
-	size_t cap = 1024, n = 0;
-	Rec *recs = malloc(cap * sizeof(Rec));
-	if (!recs) { set_err("out of memory"); return -1; }
-	size_t pos = 0;
-	while (pos < len) {
-		if (buf[pos] == '\n' || buf[pos] == '\r') { pos++; continue; }
-		if (buf[pos] != '@') { set_err("malformed FASTQ: record does not start with '@'"); free(recs); return -1; }
-		size_t start = pos;
-		const char *lines[4]; size_t lens[4];
-		for (int l = 0; l < 4; l++) {
-			if (pos >= len) { set_err("malformed FASTQ: truncated record"); free(recs); return -1; }
-			const char *nl = memchr(buf + pos, '\n', len - pos);
-			size_t line_end = nl ? (size_t)(nl - buf) : len;
-			lines[l] = buf + pos; lens[l] = line_end - pos;
-			if (lens[l] && lines[l][lens[l] - 1] == '\r') lens[l]--;
-			pos = nl ? line_end + 1 : len;
-		}
-		if (lens[2] == 0 || lines[2][0] != '+') { set_err("malformed FASTQ: missing '+' line"); free(recs); return -1; }
-		if (n == cap) {
-			cap *= 2;
-			Rec *r = realloc(recs, cap * sizeof(Rec));
-			if (!r) { set_err("out of memory"); free(recs); return -1; }
-			recs = r;
-		}
-		Rec *r = &recs[n++];
-		r->start = start; r->end = pos;
-		r->id = lines[0] + 1; r->id_len = lens[0] ? lens[0] - 1 : 0;
-		for (size_t i = 0; i < r->id_len; i++) if (r->id[i] == ' ' || r->id[i] == '\t') { r->id_len = i; break; }
-		r->seq = lines[1]; r->seq_len = lens[1];
-	}
-	out->recs = recs; out->n = n;
-	return 0;
-}
 
 // Base read id as rype's CLI reports it: strip a trailing /1 or /2.
 static size_t base_id_len(const Rec *r) {
@@ -92,9 +49,9 @@ static int classify_buffers(const char *buf1, size_t len1, const char *buf2, siz
                             double threshold, Parsed *p1, Parsed *p2, RypeResultArray **res) {
 	*res = NULL; p1->recs = NULL; p2->recs = NULL; p1->n = p2->n = 0;
 	if (!g_index) { set_err("no index loaded"); return -1; }
-	if (parse_fastq(buf1, len1, p1) != 0) return -1;
+	if (parse_fastq(buf1, len1, p1, g_err, sizeof g_err) != 0) return -1;
 	if (buf2) {
-		if (parse_fastq(buf2, len2, p2) != 0) { free(p1->recs); p1->recs = NULL; return -1; }
+		if (parse_fastq(buf2, len2, p2, g_err, sizeof g_err) != 0) { free(p1->recs); p1->recs = NULL; return -1; }
 		if (p2->n != p1->n) {
 			set_err("paired FASTQ batches have different record counts");
 			free(p1->recs); free(p2->recs); p1->recs = p2->recs = NULL; return -1;

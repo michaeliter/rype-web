@@ -64,6 +64,14 @@
       <div><label for="thr">Score threshold</label><input id="thr" type="number" min="0" max="1" step="0.01" value="0.1"></div>
       <div><label class="inline"><input id="gz" type="checkbox"> gzip output</label></div>
     </div>
+    <div id="mmSection" style="margin-top:10px">
+      <label>Short-read second pass: minimap2 <code>sr</code> against a multi-part T2T index (host filter only)</label>
+      <label class="inline"><input type="radio" name="mm" value="none" checked> Off</label>
+      <label class="inline"><input type="radio" name="mm" value="url"> Index URL</label>
+      <label class="inline"><input type="radio" name="mm" value="local"> Local files</label>
+      <div id="mmUrl" hidden style="margin-top:4px"><input id="mmUrlText" type="text" placeholder="https://host/path/chm13_sr_parts.mmi (needs a .parts.json beside it)"></div>
+      <div id="mmLocal" hidden style="margin-top:4px"><input id="mmFiles" type="file" multiple accept=".mmi,.json"> <span class="note">pick the <code>.mmi</code> and its <code>.parts.json</code></span></div>
+    </div>
     <div style="margin-top:14px"><button id="run" disabled>Run</button></div>
     <div id="runStatus" class="status"></div>
     <progress id="bar" value="0" max="1" hidden></progress>
@@ -102,20 +110,39 @@ $('idx').addEventListener('change', (e) => mountLocal([...e.target.files].map((f
 $('idxLoad').addEventListener('click', () => { if ($('idxUrl').value.trim()) mountUrl($('idxUrl').value.trim()); });
 $('fq1').addEventListener('change', updateRun);
 
-function startRun() {
+document.querySelectorAll('input[name=mm]').forEach((el) => el.addEventListener('change', () => { $('mmUrl').hidden = radio('mm') !== 'url'; $('mmLocal').hidden = radio('mm') !== 'local'; }));
+// Build the second-pass config: the part byte ranges come from <index>.parts.json (tools/mmi_parts.py).
+async function mmConfig() {
+  const kind = radio('mm');
+  if (kind === 'none' || radio('mode') !== 'filter') return null;
+  if (kind === 'url') {
+    const url = $('mmUrlText').value.trim(); if (!url) throw new Error('minimap2 index URL is empty');
+    const r = await fetch(url + '.parts.json'); if (!r.ok) throw new Error(`${r.status} fetching ${url}.parts.json`);
+    return { source: 'url', url, parts: (await r.json()).parts, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 };
+  }
+  const files = [...$('mmFiles').files];
+  const mmi = files.find((f) => /\.mmi$/i.test(f.name)), json = files.find((f) => /\.parts\.json$/i.test(f.name));
+  if (!mmi || !json) throw new Error('pick both the .mmi and its .parts.json');
+  return { source: 'local', file: mmi, parts: JSON.parse(await json.text()).parts };
+}
+function mmWorkerCount() { const n = parseInt(qs.get('mmWorkers'), 10); return n > 0 ? n : Math.max(1, Math.floor(workerCount() / 2)); } // ~3 GB per part worker
+
+async function startRun() {
+  let mm;
+  try { mm = await mmConfig(); } catch (e) { $('runStatus').textContent = 'Error: ' + e.message; $('runStatus').classList.add('err'); window.__error = e.message; return; }
   running = true; updateRun();
   $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0;
   $('sAffectedLabel').textContent = radio('mode') === 'classify' ? 'Hits reported' : 'Removed (hit the index)';
   $('runStatus').textContent = 'Running…'; $('runStatus').classList.remove('err');
   worker.postMessage({ type: 'run', mode: radio('mode'), r1: r1(), r2: r2(), threshold: parseFloat($('thr').value) || 0.1,
-                       batchBytes: batchBytes(), gzipOut: $('gz').checked });
+                       batchBytes: batchBytes(), gzipOut: $('gz').checked, mm, mmWorkers: mmWorkerCount() });
 }
 $('run').addEventListener('click', startRun);
 
 function showStats(d) {
   $('sTotal').textContent = fmt(d.total); $('sAffected').textContent = fmt(d.affected);
   $('sFetched').textContent = d.bytesFetched ? fmtBytes(d.bytesFetched) : '–'; $('sElapsed').textContent = (d.elapsedMs / 1000).toFixed(1) + ' s';
-  if (d.phases) { const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s'; $('sPhases').textContent = `${p.batches} batch(es) on ${p.workers} worker(s): read+gunzip ${s(p.read)}, batching ${s(p.batch)}, classify ${s(p.classify)} CPU, write ${s(p.write)}`; }
+  if (d.phases) { const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s'; $('sPhases').textContent = `rype: ${p.batches} batch(es) on ${p.workers} worker(s), read+gunzip ${s(p.read)}, batching ${s(p.batch)}, classify ${s(p.classify)} CPU, write ${s(p.write)}` + (p.mm ? `; minimap2: ${p.mm.parts} part(s), ${p.mm.concurrency} at a time, ${p.mm.batches} batch(es), map ${s(p.mm.tMap)}, write ${s(p.mm.tWrite)}; removed ${fmt(d.rypeRemoved)} by rype + ${fmt(d.mmRemoved)} by minimap2` : ''); }
 }
 worker.onmessage = (e) => {
   const d = e.data;
@@ -123,11 +150,11 @@ worker.onmessage = (e) => {
     indexReady = true; updateRun();
     setIdxStatus(`Index loaded (${d.source}): k=${d.k}, w=${d.w}, ${fmt(d.buckets)} bucket(s), ${d.shards} shard(s), ${fmtBytes(d.shardBytes)}; ${d.workers} classifier worker(s).`);
   } else if (d.type === 'progress') {
-    showStats(d); if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+    showStats(d); if (d.stage) $('runStatus').textContent = `Running: ${d.stage}…`; if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
   } else if (d.type === 'done') {
     running = false; updateRun(); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
-    window.__result = { mode: d.mode, total: d.total, affected: d.affected, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
+    window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
     window.__files = d.files;
   } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
   } else if (d.type === 'error') {
@@ -161,7 +188,8 @@ function batchBytes() {
   const mb = parseFloat(qs.get('batchMB')) || (small ? 128 : workerCount() > 1 ? 256 : 512);
   return Math.min(mb, 700) * 1024 * 1024;
 }
-// mode=filter|classify, gz=1|multi (gz input), r1=<testdata file> (overrides stem), gzout=1, batchMB=N, thr=X.
+// mode=filter|classify, gz=1|multi (gz input), r1=/r2=<testdata file> (override stems), mm=url (second pass,
+// mmi=<testdata .mmi>, mmWorkers=N), gzout=1, batchMB=N, thr=X, workers=N, simulateFail=<seq>.
 if (qs.get('demo')) {
   (async () => {
     const idx = qs.get('idx') || 'wol2_12', paired = !!qs.get('paired');
@@ -182,7 +210,8 @@ if (qs.get('demo')) {
     const stem = { chr1_slice: 'mixed', human: 'real_mix' }[idx] || 'wol_r1';
     const r1name = qs.get('r1');
     const dt = new DataTransfer(); dt.items.add(await get(r1name || `${stem}${gz}`)); $('fq1').files = dt.files;
-    if (paired) { const dt2 = new DataTransfer(); dt2.items.add(await get(`wol_r2${gz}`)); $('fq2').files = dt2.files; }
+    if (paired) { const dt2 = new DataTransfer(); dt2.items.add(await get(qs.get('r2') || `wol_r2${gz}`)); $('fq2').files = dt2.files; }
+    if (qs.get('mm') === 'url') { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = base + (qs.get('mmi') || 'chm13_sr_parts.mmi'); }
     const wait = setInterval(() => { if (indexReady) { clearInterval(wait); updateRun(); startRun(); } }, 50);
   })();
 }

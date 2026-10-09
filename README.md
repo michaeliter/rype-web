@@ -107,3 +107,38 @@ One 640 MB batch, same slice, sequential runs:
 - Demo `src=local` fetches the index (and `r1=`) into in-memory Blobs; for files
   this large Chrome pages them to disk and the run is much slower than with
   picker-chosen Files, so time real runs through the pickers, not the demo hook.
+
+## Short-read second pass (minimap2 `sr` vs T2T)
+
+For short paired reads the host filter runs a second pass after rype: minimap2 with
+the `sr` preset against the T2T (CHM13) genome. A pair is dropped if either mate maps
+in any part. Pieces:
+- `src/mm.c` + `third_party/minimap2` (copied from the miint submodule, built by
+  `build_mm2.sh` with the same SSE2-via-SIMD128 flags miint uses) -> `web/mm_filter.wasm`.
+- `web/mm_worker.js`: one worker per index part; the part is mounted as its own file
+  from a byte range of the `.mmi` (local File or URL) via `fsutil.js`, so a 9 GB
+  single-file index streams without ever being stored.
+- A single-part `.mmi` cannot be used: minimap2 loads a part whole and wasm32 caps a
+  worker at 4 GB. Build the index multi-part (`-I` counts bases, not bytes):
+  `minimap2 -x sr -t 10 -I 600M -d chm13_sr_parts.mmi chm13.fa.gz` -> 5 parts of
+  <= 1.96 GiB, ~2.7 GiB heap each when loaded. Then `python3 tools/mmi_parts.py x.mmi`
+  writes `x.mmi.parts.json` (part byte ranges), which must sit beside the index.
+- `worker.js` runs the sweeps: rype output -> parts 1..c -> survivors -> parts c+1..2c ...
+  (`c` = `?mmWorkers=`, default half the rype worker count, ~3 GB per part worker).
+  Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
+- Verified against native minimap2 on `testdata/sr_mix_r{1,2}.fq` (5000 simulated T2T
+  chr22 pairs + 9000 WoL pairs): identical hit set per part (`test_mm.mjs`) and the
+  two-pass browser output equals the complement of the native rype + minimap2 truth.
+
+## Automated headless tests
+
+```
+npm install          # puppeteer-core only; uses the installed Chrome
+npm test             # or: node test/run.mjs <name-filter>
+```
+`test/run.mjs` starts `serve.mjs` on a random port, drives `web/index.html?demo=...` in
+headless Chrome, waits for `window.__result`, and checks counts and SHA-256 of the
+outputs against `test/cases.json` (truth files under `testdata/`, all produced by the
+native tools). Cases needing the big local indexes (`testdata/human.ryxdi`,
+`chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
+`scratch/test-out/<case>/`.

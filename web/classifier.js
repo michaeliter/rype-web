@@ -1,7 +1,7 @@
 // Classifier worker: one wasm instance with its own mount of the index. The
 // coordinator (worker.js) spawns several of these and hands each one whole
 // FASTQ batches; results go back in the same message shape, keyed by `seq`.
-importScripts('rype_mask.js');
+importScripts('rype_mask.js', 'fsutil.js');
 
 let M = null;
 let simulateFail = null; // ?simulateFail=<seq>: throw once on that batch (tests the retry path)
@@ -10,61 +10,6 @@ const ready = createRypeMask({ print: () => {}, printErr: (s) => post('log', { m
 const lastError = () => M.ccall('mask_last_error', 'string', [], []);
 
 // ---------------------------------------------------------------- index sources
-let bytesFetched = 0;
-
-// Index files are presented to WORKERFS as chunked, cached sources, and the
-// WORKERFS read op is patched to copy straight out of the cache. rype makes
-// ~80k reads per pass over a 1.7 GB shard, most under 4 KB, and the stock
-// WORKERFS path (Blob.slice + FileReaderSync per read) costs a round trip to the
-// browser process each: ~25 s per pass measured, for both local and URL sources.
-// Fetching 8 MB chunks instead makes it ~220 round trips per pass.
-class ChunkedSource {
-  constructor(size, fetchRange, chunk = 8 << 20, keep = 4) { this.size = size; this.fetchRange = fetchRange; this.chunk = chunk; this.keep = keep; this.cache = new Map(); }
-  chunkAt(i) {
-    let c = this.cache.get(i);
-    if (c) return c;
-    c = this.fetchRange(i * this.chunk, Math.min(this.size, (i + 1) * this.chunk));
-    this.cache.set(i, c);
-    if (this.cache.size > this.keep) this.cache.delete(this.cache.keys().next().value);
-    return c;
-  }
-  readInto(buffer, offset, length, position) { // WORKERFS stream_ops.read contract
-    const end = Math.min(this.size, position + length);
-    for (let pos = position; pos < end;) {
-      const i = Math.floor(pos / this.chunk), c = this.chunkAt(i);
-      const off = pos - i * this.chunk, n = Math.min(c.length - off, end - pos);
-      buffer.set(c.subarray(off, off + n), offset + (pos - position));
-      pos += n;
-    }
-    return Math.max(0, end - position);
-  }
-  slice(a, b) { const out = new Uint8Array(Math.max(0, Math.min(b, this.size) - a)); this.readInto(out, 0, out.length, a); return new Blob([out]); }
-}
-const localSource = (file) => new ChunkedSource(file.size, (a, b) => new Uint8Array(new FileReaderSync().readAsArrayBuffer(file.slice(a, b))));
-function remoteSource(url, size, chunk) {
-  return new ChunkedSource(size, (a, b) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, false);
-    xhr.responseType = 'arraybuffer';
-    xhr.setRequestHeader('Range', `bytes=${a}-${b - 1}`);
-    xhr.send();
-    if (xhr.status !== 206) throw new Error(`range request failed (${xhr.status}) for ${url}`);
-    const buf = new Uint8Array(xhr.response);
-    bytesFetched += buf.length;
-    return buf;
-  }, chunk);
-}
-let readPatched = false;
-function patchWorkerfsRead() {
-  if (readPatched) return;
-  readPatched = true;
-  const orig = M.WORKERFS.stream_ops.read;
-  M.WORKERFS.stream_ops.read = (stream, buffer, offset, length, position) => {
-    const c = stream.node.contents;
-    return c instanceof ChunkedSource ? c.readInto(buffer, offset, length, position) : orig(stream, buffer, offset, length, position);
-  };
-}
-
 async function remoteEntries(base, chunkBytes) {
   if (!base.endsWith('/')) base += '/';
   const get = async (rel) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`${r.status} fetching ${rel}`); return r; };
@@ -75,13 +20,7 @@ async function remoteEntries(base, chunkBytes) {
     { name: 'manifest.toml', data: new Blob([manifest]) },
     { name: 'buckets.parquet', data: await (await get('buckets.parquet')).blob() },
   ];
-  for (const rel of shards) {
-    const head = await fetch(base + rel, { method: 'HEAD' });
-    const size = parseInt(head.headers.get('Content-Length') || '', 10);
-    if (!head.ok || !(size > 0)) throw new Error(`cannot size ${rel} (server must expose Content-Length)`);
-    if (head.headers.get('Accept-Ranges') !== 'bytes') throw new Error(`${rel}: server does not advertise byte ranges`);
-    entries.push({ name: rel, data: remoteSource(base + rel, size, chunkBytes) });
-  }
+  for (const rel of shards) entries.push({ name: rel, data: remoteSource(base + rel, await remoteSize(base + rel), chunkBytes) });
   return entries;
 }
 
@@ -97,11 +36,11 @@ function localEntries(files, paths) {
 
 async function mountIndex(msg) {
   const entries = msg.source === 'url' ? await remoteEntries(msg.base, msg.chunkBytes || (8 << 20)) : localEntries(msg.files, msg.paths);
-  patchWorkerfsRead();
+  patchWorkerfsRead(M);
   try { M.FS.unmount('/index'); } catch {}
   try { M.FS.mkdir('/index'); } catch {}
   M.FS.mount(M.WORKERFS, { blobs: entries }, '/index');
-  bytesFetched = 0;
+  FsStats.bytesFetched = 0;
   if (M.ccall('mask_load_index', 'number', ['string'], ['/index']) !== 0) throw new Error(lastError());
   const shards = entries.filter((e) => e.name.startsWith('inverted/'));
   return { k: M._mask_index_k(), w: M._mask_index_w(), buckets: M._mask_index_num_buckets(),
@@ -130,7 +69,7 @@ function classify({ seq, mode, b1, b2, threshold }) {
     : { total: u32(outs, 4), affected: u32(outs, 5), out1: takeOut(outs, 0, 1), out2: b2 ? takeOut(outs, 2, 3) : null };
   M._free(outs);
   const transfer = [r.out1.buffer, ...(r.out2 ? [r.out2.buffer] : [])];
-  post('result', { seq, ...r, ms: performance.now() - t, bytesFetched, heapBytes: M.HEAPU8.length }, transfer);
+  post('result', { seq, ...r, ms: performance.now() - t, bytesFetched: FsStats.bytesFetched, heapBytes: M.HEAPU8.length }, transfer);
 }
 
 self.onerror = (e) => post('error', { msg: 'uncaught in classifier: ' + (e.message || e) });

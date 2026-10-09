@@ -1,0 +1,65 @@
+// Shared by classifier.js and mm_worker.js (importScripts): index files are
+// presented to WORKERFS as chunked, cached sources, and the WORKERFS read op is
+// patched to copy straight out of the cache. rype makes ~80k reads per pass over
+// a 1.7 GB shard, most under 4 KB, and the stock WORKERFS path (Blob.slice +
+// FileReaderSync per read) costs a round trip to the browser process each: ~25 s
+// per pass measured, for both local and URL sources. Fetching 8 MB chunks
+// instead makes it ~220 round trips per pass.
+const FsStats = { bytesFetched: 0 };
+
+class ChunkedSource {
+  // size/offset select a byte range of the underlying file (a multi-part
+  // minimap2 index part is mounted as its own file this way).
+  constructor(size, fetchRange, chunk = 8 << 20, keep = 4, offset = 0) { this.size = size; this.offset = offset; this.fetchRange = fetchRange; this.chunk = chunk; this.keep = keep; this.cache = new Map(); }
+  chunkAt(i) {
+    let c = this.cache.get(i);
+    if (c) return c;
+    c = this.fetchRange(this.offset + i * this.chunk, this.offset + Math.min(this.size, (i + 1) * this.chunk));
+    this.cache.set(i, c);
+    if (this.cache.size > this.keep) this.cache.delete(this.cache.keys().next().value);
+    return c;
+  }
+  readInto(buffer, offset, length, position) { // WORKERFS stream_ops.read contract
+    const end = Math.min(this.size, position + length);
+    for (let pos = position; pos < end;) {
+      const i = Math.floor(pos / this.chunk), c = this.chunkAt(i);
+      const off = pos - i * this.chunk, n = Math.min(c.length - off, end - pos);
+      buffer.set(c.subarray(off, off + n), offset + (pos - position));
+      pos += n;
+    }
+    return Math.max(0, end - position);
+  }
+  slice(a, b) { const out = new Uint8Array(Math.max(0, Math.min(b, this.size) - a)); this.readInto(out, 0, out.length, a); return new Blob([out]); }
+}
+const localSource = (file, offset = 0, size = file.size) =>
+  new ChunkedSource(size, (a, b) => new Uint8Array(new FileReaderSync().readAsArrayBuffer(file.slice(a, b))), 8 << 20, 4, offset);
+function remoteSource(url, size, chunk = 8 << 20, offset = 0) {
+  return new ChunkedSource(size, (a, b) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, false);
+    xhr.responseType = 'arraybuffer';
+    xhr.setRequestHeader('Range', `bytes=${a}-${b - 1}`);
+    xhr.send();
+    if (xhr.status !== 206) throw new Error(`range request failed (${xhr.status}) for ${url}`);
+    const buf = new Uint8Array(xhr.response);
+    FsStats.bytesFetched += buf.length;
+    return buf;
+  }, chunk, 4, offset);
+}
+// HEAD a URL and return its size, insisting on byte-range support.
+async function remoteSize(url) {
+  const head = await fetch(url, { method: 'HEAD' });
+  const size = parseInt(head.headers.get('Content-Length') || '', 10);
+  if (!head.ok || !(size > 0)) throw new Error(`cannot size ${url} (server must expose Content-Length)`);
+  if (head.headers.get('Accept-Ranges') !== 'bytes') throw new Error(`${url}: server does not advertise byte ranges`);
+  return size;
+}
+function patchWorkerfsRead(M) {
+  if (M.WORKERFS.__patched) return;
+  M.WORKERFS.__patched = true;
+  const orig = M.WORKERFS.stream_ops.read;
+  M.WORKERFS.stream_ops.read = (stream, buffer, offset, length, position) => {
+    const c = stream.node.contents;
+    return c instanceof ChunkedSource ? c.readInto(buffer, offset, length, position) : orig(stream, buffer, offset, length, position);
+  };
+}
