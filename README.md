@@ -142,3 +142,21 @@ outputs against `test/cases.json` (truth files under `testdata/`, all produced b
 native tools). Cases needing the big local indexes (`testdata/human.ryxdi`,
 `chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
 `scratch/test-out/<case>/`.
+
+### Paired-end HG00133 cascade, browser vs native (2026-10-09)
+
+10,032,107 pairs (2 x ~1 GB gz), human.ryxdi then T2T minimap2 sr, 5 parts. Same
+machine, runs sequential. Both remove 10,029,160 pairs by rype and 2,944 by minimap2,
+leaving the same 3 pairs.
+
+| | wall | peak RSS |
+|---|---|---|
+| native rype, 4 threads | 63.5 s | 13.6 GB |
+| native survivor extraction (python, not optimised) | 50.4 s | 1.4 GB |
+| native minimap2 sr, 4 threads, 5 parts | 21.4 s | 3.2 GB |
+| browser, 4 rype workers + 4 part workers, end to end | 52.5-61.8 s | ~8 GB rype, ~12 GB minimap2 phase |
+
+The browser overlaps gunzip with classification and never materialises the survivors on
+disk, so it matches native rype alone; the minimap2 phase is small here because rype
+removes 99.97% of a human sample first. Reproduce: `CASES=test/perf-cascade.json npm test`
+(real disk files through the pickers via puppeteer `uploadFile`; `demo=manual`).

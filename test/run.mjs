@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const cases = JSON.parse(fs.readFileSync(path.join(root, 'test/cases.json'), 'utf8'));
+const cases = JSON.parse(fs.readFileSync(path.resolve(root, process.env.CASES || 'test/cases.json'), 'utf8')); // CASES=test/perf-cascade.json for perf runs
 const filter = process.argv[2] || '';
 const chrome = process.env.CHROME || ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'].find((p) => fs.existsSync(p));
 if (!chrome) { console.error('no Chrome found; set CHROME=/path/to/chrome'); process.exit(2); }
@@ -21,12 +21,12 @@ await new Promise((r) => setTimeout(r, 500));
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const readIds = (text) => text.split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));
 
-const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192'] });
+const browser = await puppeteer.launch({ executablePath: chrome, headless: true, protocolTimeout: 0, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192'] });
 let failed = 0, ran = 0;
 try {
   for (const c of cases) {
     if (filter && !c.name.includes(filter)) continue;
-    const missing = (c.requires || []).filter((f) => !fs.existsSync(path.join(root, f)));
+    const missing = (c.requires || []).filter((f) => !fs.existsSync(path.resolve(root, f.replace(/^~/, process.env.HOME))));
     if (missing.length) { console.log(`SKIP ${c.name}: missing ${missing.join(', ')}`); continue; }
     ran++;
     const page = await browser.newPage();
@@ -34,8 +34,20 @@ try {
     page.on('console', (m) => logs.push(m.text()));
     page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
     const t0 = Date.now();
-    await page.goto(`http://localhost:${port}/web/index.html?demo=1&${c.query}&v=${Date.now()}`);
-    await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 });
+    const demo = c.uploads ? 'manual' : '1';
+    await page.goto(`http://localhost:${port}/web/index.html?demo=${demo}&${c.query}&v=${Date.now()}`);
+    if (c.uploads) { // real disk-backed Files via the pickers, as a user would (paths may be absolute)
+      const abs = (f) => path.resolve(root, f.replace(/^~/, process.env.HOME));
+      for (const [id, files] of Object.entries(c.uploads)) {
+        const el = await page.$('#' + id); await el.uploadFile(...[].concat(files).map(abs));
+        await el.evaluate((e) => e.dispatchEvent(new Event('change', { bubbles: true }))); // a webkitdirectory input gets no change event from DOM.setFileInputFiles
+      }
+      await page.evaluate(() => window.__start());
+      const idxStatus = await page.evaluate(() => document.getElementById('idxStatus').textContent);
+      logs.push('index status after upload: ' + idxStatus);
+    }
+    try { await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 }); }
+    catch (e) { const st = await page.evaluate(() => [document.getElementById('idxStatus').textContent, document.getElementById('runStatus').textContent].join(' | ')); failed++; console.log(`FAIL ${c.name}: timed out; status: ${st}; console: ${logs.slice(-5).join(' | ')}`); await page.close(); continue; }
     const r = await page.evaluate(async () => {
       if (window.__error) return { error: String(window.__error) };
       const files = [];
@@ -44,7 +56,7 @@ try {
         const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf))).map((b) => b.toString(16).padStart(2, '0')).join('');
         files.push({ name: f.name, size: f.size, sha256: hash, text: f.size < 50e6 && !/\.gz$/.test(f.name) ? new TextDecoder().decode(buf) : null });
       }
-      return { ...window.__result, files, log: window.__log || [] };
+      return { ...window.__result, phases: window.__phases, files, log: window.__log || [] };
     });
     await page.close();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -60,6 +72,10 @@ try {
         if (ef.size != null && f.size !== ef.size) problems.push(`${f.name} size: ${f.size} != ${ef.size}`);
         if (ef.sha256 && f.sha256 !== ef.sha256) problems.push(`${f.name} sha256: ${f.sha256.slice(0, 12)} != ${ef.sha256.slice(0, 12)}`);
         if (ef.sha256_of) { const want = sha256(fs.readFileSync(path.join(root, ef.sha256_of))); if (f.sha256 !== want) problems.push(`${f.name} differs from ${ef.sha256_of}`); }
+        if (ef.ids_equal) { // output read ids (in order) == the listed file's lines
+          const want = fs.readFileSync(path.resolve(root, ef.ids_equal.replace(/^~/, process.env.HOME)), 'utf8').split('\n').filter(Boolean), got = f.text ? readIds(f.text) : [];
+          if (want.length !== got.length || want.some((id, j) => id !== got[j])) problems.push(`${f.name}: read ids differ (${got.length} vs ${want.length} expected): got ${got.slice(0, 3)}`);
+        }
         if (ef.ids_equal_complement_of) { // output read ids == all input ids minus the listed truth sets
           const all = readIds(fs.readFileSync(path.join(root, ef.ids_equal_complement_of.input), 'utf8'));
           const drop = new Set(ef.ids_equal_complement_of.truth.flatMap((t) => fs.readFileSync(path.join(root, t), 'utf8').split('\n').filter(Boolean)));
@@ -73,7 +89,7 @@ try {
       const dump = path.join(root, 'scratch/test-out', c.name); fs.mkdirSync(dump, { recursive: true });
       for (const f of r.files || []) if (f.text) fs.writeFileSync(path.join(dump, f.name), f.text);
       problems.push(`outputs saved under scratch/test-out/${c.name}`); console.log(`FAIL ${c.name} (${secs}s)\n  ` + problems.join('\n  ') + `\n  result: total=${r.total} affected=${r.affected} rype=${r.rypeRemoved} mm=${r.mmRemoved} files=${(r.files || []).map((f) => `${f.name}:${f.size}B${f.text ? '/' + readIds(f.text).length + 'rec' : ''}`).join(' ')}` + (logs.length ? '\n  console: ' + logs.slice(-5).join(' | ') : '')); }
-    else console.log(`ok   ${c.name} (${secs}s) total=${r.total} removed=${r.affected}`);
+    else console.log(`ok   ${c.name} (${secs}s) total=${r.total} removed=${r.affected}` + (r.rypeRemoved != null ? ` (rype ${r.rypeRemoved}, minimap2 ${r.mmRemoved})` : '') + ` elapsed=${(r.elapsedMs / 1000).toFixed(1)}s` + (r.phases ? ` phases=${JSON.stringify(r.phases)}` : ''));
   }
 } finally {
   await browser.close(); server.kill();

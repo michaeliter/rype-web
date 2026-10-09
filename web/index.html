@@ -101,12 +101,15 @@ function updateRun() { $('run').disabled = !(indexReady && r1()) || running; }
 
 document.querySelectorAll('input[name=src]').forEach((el) => el.addEventListener('change', () => { $('srcLocal').hidden = radio('src') !== 'local'; $('srcUrl').hidden = radio('src') !== 'url'; }));
 function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); }
-function mountLocal(pairs) {
+function mountLocal(files) {
+  // A .ryxdi is flat apart from inverted/: map by basename so the same code
+  // serves the folder picker (webkitRelativePath), drag-drop, and automation.
   indexReady = false; updateRun(); setIdxStatus('Opening index…');
-  worker.postMessage({ type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), source: 'local', files: pairs.map((p) => p[0]), paths: pairs.map((p) => p[1].split('/').slice(1).join('/') || p[1]) });
+  const paths = files.map((f) => /^shard\.\d+\.parquet$/.test(f.name) ? 'inverted/' + f.name : f.name);
+  worker.postMessage({ type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), source: 'local', files, paths });
 }
 function mountUrl(base) { indexReady = false; updateRun(); setIdxStatus('Fetching manifest and sizing shards…'); worker.postMessage({ type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 }); }
-$('idx').addEventListener('change', (e) => mountLocal([...e.target.files].map((f) => [f, f.webkitRelativePath || f.name])));
+$('idx').addEventListener('change', (e) => mountLocal([...e.target.files]));
 $('idxLoad').addEventListener('click', () => { if ($('idxUrl').value.trim()) mountUrl($('idxUrl').value.trim()); });
 $('fq1').addEventListener('change', updateRun);
 
@@ -155,7 +158,7 @@ worker.onmessage = (e) => {
     running = false; updateRun(); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
-    window.__files = d.files;
+    window.__files = d.files; window.__phases = d.phases;
   } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
   } else if (d.type === 'error') {
     running = false; updateRun();
@@ -190,7 +193,15 @@ function batchBytes() {
 }
 // mode=filter|classify, gz=1|multi (gz input), r1=/r2=<testdata file> (override stems), mm=url (second pass,
 // mmi=<testdata .mmi>, mmWorkers=N), gzout=1, batchMB=N, thr=X, workers=N, simulateFail=<seq>.
-if (qs.get('demo')) {
+window.__start = () => { const w = setInterval(() => { if (window.__error) clearInterval(w); else if (indexReady) { clearInterval(w); updateRun(); startRun(); } }, 50); };
+if (qs.get('demo') === 'manual') { // harness sets the file inputs itself (real disk files), then calls __start()
+  document.querySelector(`input[name=mode][value=${qs.get('mode') || 'filter'}]`).checked = true;
+  if (qs.get('thr')) $('thr').value = qs.get('thr');
+  if (qs.get('gzout')) $('gz').checked = true;
+  if (qs.get('mm') === 'local') document.querySelector('input[name=mm][value=local]').click();
+  document.querySelector('input[name=src][value=local]').click();
+  $('idx').removeAttribute('webkitdirectory'); $('idx').removeAttribute('directory'); // automation cannot fill a directory picker
+} else if (qs.get('demo')) {
   (async () => {
     const idx = qs.get('idx') || 'wol2_12', paired = !!qs.get('paired');
     document.querySelector(`input[name=mode][value=${qs.get('mode') || 'filter'}]`).checked = true;
@@ -204,7 +215,7 @@ if (qs.get('demo')) {
     else {
       const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
       const files = await Promise.all(rels.map((r) => get(`${idx}.ryxdi/${r}`)));
-      mountLocal(files.map((f, i) => [f, `${idx}.ryxdi/${rels[i]}`]));
+      mountLocal(files);
     }
     const gz = qs.get('gz') === 'multi' ? '.multi.fq.gz' : qs.get('gz') ? '.fq.gz' : '.fq';
     const stem = { chr1_slice: 'mixed', human: 'real_mix' }[idx] || 'wol_r1';

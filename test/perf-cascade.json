@@ -1,0 +1,12 @@
+[
+  { "name": "perf-hg00133-paired-cascade-4w", "timeoutSec": 7200,
+    "query": "mode=filter&thr=0.1&mm=local&workers=4&mmWorkers=4",
+    "requires": ["~/rype-work/references/HG00133_hap2_hprc_r2_v1.0.1_R1.fastq.gz", "~/rype-work/references/human.ryxdi/manifest.toml", "~/rype-work/references/test_indices/chm13_sr_parts.mmi.parts.json"],
+    "uploads": {
+      "idx": ["~/rype-work/references/human.ryxdi/manifest.toml", "~/rype-work/references/human.ryxdi/buckets.parquet", "~/rype-work/references/human.ryxdi/inverted/shard.0.parquet"],
+      "fq1": "~/rype-work/references/HG00133_hap2_hprc_r2_v1.0.1_R1.fastq.gz",
+      "fq2": "~/rype-work/references/HG00133_hap2_hprc_r2_v1.0.1_R2.fastq.gz",
+      "mmFiles": ["~/rype-work/references/test_indices/chm13_sr_parts.mmi", "~/rype-work/references/test_indices/chm13_sr_parts.mmi.parts.json"]
+    },
+    "expect": { "total": 10032107, "rypeRemoved": 10029160, "mmRemoved": 2944, "files": [ { "name": "HG00133_hap2_hprc_r2_v1.0.1.masked.R1.fastq", "ids_equal": "scratch/cascade_final_ids.txt" } ] } }
+]

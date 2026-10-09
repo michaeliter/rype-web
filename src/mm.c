@@ -66,7 +66,11 @@ int mm_part_hits(const char *buf1, size_t len1, const char *buf2, size_t len2,
 		int qlens[2] = { (int)p1.recs[i].seq_len, buf2 ? (int)p2.recs[i].seq_len : 0 };
 		int n_regs[2] = { 0, 0 };
 		mm_reg1_t *regs[2] = { NULL, NULL };
-		mm_map_frag(g_mi, n_segs, qlens, seqs, n_regs, regs, g_tbuf, &g_mopt, NULL);
+		// minimap2 hashes the query name (first mate's, as the CLI passes it) into its
+		// seed-subsampling and tie-breaking RNG; pass it so results match the CLI.
+		char name[256]; size_t nl = p1.recs[i].id_len < sizeof name - 1 ? p1.recs[i].id_len : sizeof name - 1;
+		memcpy(name, p1.recs[i].id, nl); name[nl] = 0;
+		mm_map_frag(g_mi, n_segs, qlens, seqs, n_regs, regs, g_tbuf, &g_mopt, name);
 		int hit = n_regs[0] > 0 || (n_segs == 2 && n_regs[1] > 0);
 		for (int k = 0; k < n_segs; k++) free_regs(regs[k], n_regs[k]);
 		if (hit) { h[i] = 1; nh++; }
