@@ -35,6 +35,10 @@ so output size is not bounded by memory; optional gzip.
 ## Run
     node serve.mjs 8765 .          # from this directory
     open http://127.0.0.1:8765/web/index.html
+Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
+single-end file next). Cancel (shown while a job runs) terminates the coordinator worker
+and with it the classifier/minimap2 workers, discards partial outputs, and reloads the
+index in a fresh worker; Run is enabled again once the index is back.
 Dev smoke tests (same worker paths as the pickers, no file dialogs):
     ?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&batchMB=0.5
     ?demo=1&idx=wol2_12&src=local&paired=1&mode=filter&gz=1|multi&gzout=1&batchMB=0.3
@@ -141,7 +145,10 @@ headless Chrome, waits for `window.__result`, and checks counts and SHA-256 of t
 outputs against `test/cases.json` (truth files under `testdata/`, all produced by the
 native tools). Cases needing the big local indexes (`testdata/human.ryxdi`,
 `chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
-`scratch/test-out/<case>/`.
+`scratch/test-out/<case>/`. A case with `"cancel": true` (or `"cancel": "<stage>"`, e.g.
+`"minimap2"`) presses Cancel once that state is shown, then starts again and checks the
+rerun's result; `"clear": "<input id>"` presses that picker's × before the run and
+re-uploads the file.
 
 ### Paired-end HG00133 cascade, browser vs native (2026-10-09)
 

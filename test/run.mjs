@@ -42,9 +42,23 @@ try {
         const el = await page.$('#' + id); await el.uploadFile(...[].concat(files).map(abs));
         await el.evaluate((e) => e.dispatchEvent(new Event('change', { bubbles: true }))); // a webkitdirectory input gets no change event from DOM.setFileInputFiles
       }
+      if (c.clear) { // the × beside a picker empties it without a reload; re-upload afterwards
+        const el = await page.$('#' + c.clear);
+        await page.click(`button[data-clear=${c.clear}]`);
+        const n = await el.evaluate((e) => e.files.length); if (n) logs.push(`clear: #${c.clear} still has ${n} file(s)`);
+        await el.uploadFile(...[].concat(c.uploads[c.clear]).map(abs)); await el.evaluate((e) => e.dispatchEvent(new Event('change', { bubbles: true })));
+      }
       await page.evaluate(() => window.__start());
       const idxStatus = await page.evaluate(() => document.getElementById('idxStatus').textContent);
       logs.push('index status after upload: ' + idxStatus);
+    }
+    if (c.cancel) { // cancel mid-run, then start again: the rerun must produce the full, correct result
+      const want = c.cancel === true ? 'Running' : c.cancel; // true: any running state; string: a stage, e.g. "minimap2"
+      await page.waitForFunction((w) => document.getElementById('runStatus').textContent.includes(w), { timeout: 600000 }, want);
+      const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); return { early, status: document.getElementById('runStatus').textContent, cancelHidden: document.getElementById('cancel').hidden, runDisabled: document.getElementById('run').disabled }; });
+      if (st.early) logs.push('cancel: run already finished before cancel');
+      if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));
+      await page.evaluate(() => { window.__result = null; window.__start(); });
     }
     try { await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 }); }
     catch (e) { const st = await page.evaluate(() => [document.getElementById('idxStatus').textContent, document.getElementById('runStatus').textContent].join(' | ')); failed++; console.log(`FAIL ${c.name}: timed out; status: ${st}; console: ${logs.slice(-5).join(' | ')}`); await page.close(); continue; }
@@ -84,6 +98,7 @@ try {
         }
       });
       if (e.log_includes && !r.log.some((l) => l.includes(e.log_includes))) problems.push(`log lacks "${e.log_includes}"`);
+      for (const l of logs) if (/^(cancel|clear):/.test(l)) problems.push(l);
     }
     if (problems.length) { failed++;
       const dump = path.join(root, 'scratch/test-out', c.name); fs.mkdirSync(dump, { recursive: true });

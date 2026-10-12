@@ -7,6 +7,8 @@
     "expect": { "total": 9000, "files": [ { "sha256_of": "testdata/wol_truth_single.tsv" } ] } },
   { "name": "wol-paired-filter-gz-in-out", "query": "idx=wol2_12&src=local&paired=1&mode=filter&gz=1&gzout=1&workers=3&batchMB=0.3",
     "expect": { "total": 9000, "affected": 6004, "files": [ { "name": "wol.masked.R1.fastq.gz" }, { "name": "wol.masked.R2.fastq.gz" } ] } },
+  { "name": "cancel-then-rerun-paired-classify", "query": "idx=wol2_12&src=local&paired=1&mode=classify&workers=2&batchMB=0.05", "cancel": true,
+    "expect": { "total": 9000, "affected": 6044, "files": [ { "sha256_of": "testdata/wol_truth_paired.tsv" } ] } },
   { "name": "retry-after-classifier-failure", "query": "idx=wol2_12&src=local&paired=1&mode=classify&workers=3&batchMB=0.1&simulateFail=0",
     "expect": { "total": 9000, "affected": 6044, "files": [ { "sha256_of": "testdata/wol_truth_paired.tsv" } ], "log_includes": "continuing with 2" } },
   { "name": "human-single-filter-multimember-gz", "query": "idx=human&src=local&mode=filter&gz=multi&workers=2&batchMB=4&thr=0.1", "requires": ["testdata/human.ryxdi/manifest.toml"],
@@ -16,7 +18,10 @@
   { "name": "two-pass-sr-paired-rype-then-minimap2", "query": "idx=wol2_12&src=local&paired=1&mode=filter&r1=sr_mix_r1.fq&r2=sr_mix_r2.fq&mm=url&workers=2&mmWorkers=2&batchMB=0.5",
     "requires": ["testdata/chm13_sr_parts.mmi.parts.json"], "timeoutSec": 900,
     "expect": { "total": 14000, "affected": 11007, "rypeRemoved": 6020, "mmRemoved": 4987, "files": [ { "name": "sr_mix.masked.R1.fastq", "ids_equal_complement_of": { "input": "testdata/sr_mix_r1.fq", "truth": ["testdata/sr_truth_hostpairs.txt", "testdata/sr_rype_wolpairs.txt"] } }, { "name": "sr_mix.masked.R2.fastq" } ] } },
-  { "name": "uploads-real-files-rype-paired", "query": "mode=filter&thr=0.1&workers=2&batchMB=0.5",
+  { "name": "cancel-during-minimap2-then-rerun", "query": "idx=wol2_12&src=local&paired=1&mode=filter&r1=sr_mix_r1.fq&r2=sr_mix_r2.fq&mm=url&workers=2&mmWorkers=2&batchMB=0.5",
+    "requires": ["testdata/chm13_sr_parts.mmi.parts.json"], "timeoutSec": 900, "cancel": "minimap2",
+    "expect": { "total": 14000, "affected": 11007, "rypeRemoved": 6020, "mmRemoved": 4987, "files": [ { "name": "sr_mix.masked.R1.fastq" }, { "name": "sr_mix.masked.R2.fastq" } ] } },
+  { "name": "uploads-real-files-rype-paired", "query": "mode=filter&thr=0.1&workers=2&batchMB=0.5", "clear": "fq2",
     "uploads": { "idx": ["testdata/wol2_12.ryxdi/manifest.toml", "testdata/wol2_12.ryxdi/buckets.parquet", "testdata/wol2_12.ryxdi/inverted/shard.0.parquet"], "fq1": "testdata/sr_mix_r1.fq", "fq2": "testdata/sr_mix_r2.fq" },
     "expect": { "total": 14000, "affected": 6020, "files": [ { "name": "sr_mix.masked.R1.fastq", "ids_equal_complement_of": { "input": "testdata/sr_mix_r1.fq", "truth": ["testdata/sr_rype_wolpairs.txt"] } } ] } }
 ]
