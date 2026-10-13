@@ -102,6 +102,11 @@ try {
         const sum = r.hist.reduce((a, b) => a + b, 0), above = r.hist.reduce((a, n, b) => a + (b >= 1 && (b - 1) / 100 >= r.threshold - 1e-9 ? n : 0), 0), rype = r.rypeRemoved ?? r.affected;
         if (sum !== r.total) problems.push(`hist sums to ${sum}, total ${r.total}`);
         if (above !== rype) problems.push(`hist bins >= threshold hold ${above}, rype removed ${rype}`);
+        if (r.histMm) { // minimap2's removals are attributed to the bins rype kept, and only those
+          const mmSum = r.histMm.reduce((a, b) => a + b, 0), inRemoved = r.histMm.reduce((a, n, b) => a + (b >= 1 && (b - 1) / 100 >= r.threshold - 1e-9 ? n : 0), 0);
+          if (mmSum !== r.mmRemoved) problems.push(`histMm sums to ${mmSum}, minimap2 removed ${r.mmRemoved}`);
+          if (inRemoved) problems.push(`histMm attributes ${inRemoved} minimap2 removals to bins rype already removed`);
+        }
       }
       if (e.log_includes && !r.log.some((l) => l.includes(e.log_includes))) problems.push(`log lacks "${e.log_includes}"`);
       for (const l of logs) if (/^(cancel|clear):/.test(l)) problems.push(l);

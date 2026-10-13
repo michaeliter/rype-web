@@ -20,12 +20,16 @@ The page is a dedicated host filter:
 
 After a run a Report card shows the human fraction, a bar of removed-by-rype /
 removed-by-minimap2 / survived, and the distribution of each read's best containment
-score (log scale, threshold marked, bins at/above it coloured as removed), plus the same
-numbers in a table and a "Save report as PNG" button. For this, `mask_filter` classifies
-at threshold 0 and applies the user's threshold itself with rype's comparison
-(`score >= threshold`), returning a 102-bin histogram (no-hit + 0.01 bins) per batch;
-the harness checks that the histogram sums to the record count and that its bins at/above
-the threshold equal rype's removals, and the outputs stay byte-identical to the truth.
+score (log scale, threshold marked, bins at/above it coloured as removed; below it each
+bar is split, light brown at the bottom for the share minimap2 then removed and green on
+top for what survived), plus the same numbers in a table and a "Save report as PNG"
+button. For this, `mask_filter` classifies at threshold 0 and applies the user's threshold
+itself with rype's comparison (`score >= threshold`), returning a 102-bin histogram
+(no-hit + 0.01 bins) per batch plus each survivor's bin in output order; the minimap2
+sweeps carry those bins along and count their removals per bin. The harness checks that
+the histogram sums to the record count, that its bins at/above the threshold equal rype's
+removals, and that minimap2's per-bin removals sum to its total and only fall in bins
+rype kept; the outputs stay byte-identical to the truth.
 
 Index sources (both read lazily by byte range, nothing copied into memory):
 - a local `.ryxdi` folder picked by the user (WORKERFS over File handles)

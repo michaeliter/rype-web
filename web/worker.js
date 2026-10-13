@@ -127,7 +127,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   if (mode === 'classify') await sinks[0].write(new TextEncoder().encode('read_id\tbucket_name\tscore\n'));
 
   let total = 0, affected = 0, tClassify = 0, tTake = 0, tWrite = 0, batches = 0;
-  const hist = new Uint32Array(102); // best containment score per record, summed over batches (see classifier.js)
+  const hist = new Uint32Array(102), keptBins = []; // best-score histogram, and each survivor's bin in output order (see classifier.js)
   const fetched = new Map(); // classifier -> its cumulative index bytes fetched
   const bytesFetched = () => [...fetched.values()].reduce((a, b) => a + b, 0);
   const phases = () => ({ read: RecordReader.tPull, batch: tTake, classify: tClassify, write: tWrite, batches, workers: pool.length });
@@ -160,6 +160,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
       const t = performance.now();
       total += r.total; affected += r.affected; tClassify += r.ms;
       if (r.hist) for (let i = 0; i < hist.length; i++) hist[i] += r.hist[i];
+      if (r.keptBins) keptBins.push(r.keptBins);
       await sinks[0].write(r.out1);
       if (r.out2) await sinks[1].write(r.out2);
       tWrite += performance.now() - t; batches++;
@@ -203,7 +204,8 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   await draining; check();
   const files = [];
   for (const s of sinks) files.push(await s.close());
-  return { files, total, affected, bytesFetched: bytesFetched(), phases: phases(), hist: mode === 'filter' ? Array.from(hist) : null };
+  const bins = new Uint8Array(total - affected); let o = 0; for (const b of keptBins) { bins.set(b, o); o += b.length; }
+  return { files, total, affected, bytesFetched: bytesFetched(), phases: phases(), hist: mode === 'filter' ? Array.from(hist) : null, bins };
 }
 
 
@@ -223,7 +225,9 @@ function dropHits(buf, hits) {
 // One sweep: every batch of `inputs` goes to every part worker of `group`;
 // a pair is dropped if any part reports a mapped mate. Reading the next batch
 // overlaps the workers' mapping of the current one.
-async function mmSweep({ inputs, mm, group, names, gzipOut, dir, batchBytes, t0, stage, onStats }) {
+// bins: one byte per input record (its report histogram bin); histMm[bin] is incremented
+// for each record removed, and the survivors' bins come back in order for the next sweep.
+async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, dir, batchBytes, t0, stage, onStats }) {
   const workers = group.map(() => new Worker('mm_worker.js?v=' + Date.now()));
   let failure = null; const waiters = []; const wake = () => { while (waiters.length) waiters.shift()(); };
   const results = new Map(); // worker -> result of the batch in flight
@@ -244,6 +248,7 @@ async function mmSweep({ inputs, mm, group, names, gzipOut, dir, batchBytes, t0,
     const sinks = names.map((n) => new Sink(n, gzipOut));
     for (const s of sinks) await s.open(dir);
     let total = 0, removed = 0, tMap = 0, tWrite = 0, batches = 0, seq = 0;
+    const outBins = new Uint8Array(bins.length); let nOut = 0;
     const readBatch = async () => {
       await in1.fillBytes(batchBytes);
       let n = in1.complete();
@@ -258,7 +263,9 @@ async function mmSweep({ inputs, mm, group, names, gzipOut, dir, batchBytes, t0,
       for (const r of results.values()) { ms = Math.max(ms, r.ms); for (let i = 0; i < batch.n; i++) any[i] |= r.hits[i]; }
       tMap += ms;
       const t = performance.now();
-      let kept = 0; for (let i = 0; i < batch.n; i++) if (!any[i]) kept++;
+      let kept = 0;
+      if (total + batch.n > bins.length) throw new Error(`internal: ${total + batch.n} records in the minimap2 pass but ${bins.length} rype survivors`);
+      for (let i = 0; i < batch.n; i++) { const b = bins[total + i]; if (any[i]) histMm[b]++; else { outBins[nOut++] = b; kept++; } }
       total += batch.n; removed += batch.n - kept;
       await sinks[0].write(dropHits(batch.b1, any));
       if (batch.b2) await sinks[1].write(dropHits(batch.b2, any));
@@ -275,7 +282,7 @@ async function mmSweep({ inputs, mm, group, names, gzipOut, dir, batchBytes, t0,
     }
     const files = [];
     for (const s of sinks) files.push(await s.close());
-    return { files, total, removed };
+    return { files, total, removed, bins: outBins.subarray(0, nOut) };
   } finally {
     for (const w of workers) w.terminate();
   }
@@ -302,19 +309,20 @@ async function run(msg) {
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.
   const conc = Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length));
   const groups = []; for (let i = 0; i < mm.parts.length; i += conc) groups.push(mm.parts.map((_, k) => k).slice(i, i + conc));
-  let inputs = pass1.files, stale = [], mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
+  let inputs = pass1.files, bins = pass1.bins, stale = [], mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
+  const histMm = new Uint32Array(102); // per report bin, records minimap2 removed
   for (let g = 0; g < groups.length; g++) {
     const last = g === groups.length - 1;
     const stage = `minimap2 parts ${groups[g].map((k) => k + 1).join(',')} of ${mm.parts.length}`;
     const sweepStats = {};
-    const res = await mmSweep({ inputs, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, dir, batchBytes: msg.batchBytes, t0, stage, onStats: (s) => Object.assign(sweepStats, s) });
+    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, dir, batchBytes: msg.batchBytes, t0, stage, onStats: (s) => Object.assign(sweepStats, s) });
     mmRemoved += res.removed; mmStats.tMap += sweepStats.tMap || 0; mmStats.tWrite += sweepStats.tWrite || 0; mmStats.batches += sweepStats.batches || 0; mmStats.bytesFetched += sweepStats.bytesFetched || 0;
     for (const f of stale) { try { await dir.removeEntry(f.name); } catch {} }
-    stale = inputs; inputs = res.files;
+    stale = inputs; inputs = res.files; bins = res.bins;
   }
   for (const f of stale) { try { await dir.removeEntry(f.name); } catch {} }
   post('done', { mode, total: pass1.total, affected: pass1.affected + mmRemoved, rypeRemoved: pass1.affected, mmRemoved, elapsedMs: performance.now() - t0,
-    bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, threshold: msg.threshold,
+    bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, histMm: Array.from(histMm), threshold: msg.threshold,
     phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc } } });
 }
 

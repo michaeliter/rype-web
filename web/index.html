@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rype</title>
 <style>
-  :root { --bg:#fbf7ee; --fg:#2a2416; --muted:#8a7f66; --card:#fffdf7; --line:#ebe3cf; --accent:#f2c14e; --accent-fg:#2a2416; --leaf:#5f9b3a; --ripe:#e9b43a; --brown:#6b4423; --bad:#b4452f; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#1b1811; --fg:#f1eadb; --muted:#a79c82; --card:#242017; --line:#3a3326; --accent:#e9b43a; --accent-fg:#1b1811; --leaf:#7fbf55; --ripe:#f0c24a; --brown:#8a5a2e; --bad:#e07b5f; } }
+  :root { --bg:#fbf7ee; --fg:#2a2416; --muted:#8a7f66; --card:#fffdf7; --line:#ebe3cf; --accent:#f2c14e; --accent-fg:#2a2416; --leaf:#5f9b3a; --ripe:#e9b43a; --brown:#6b4423; --mm:#c49a6c; --bad:#b4452f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1811; --fg:#f1eadb; --muted:#a79c82; --card:#242017; --line:#3a3326; --accent:#e9b43a; --accent-fg:#1b1811; --leaf:#7fbf55; --ripe:#f0c24a; --brown:#8a5a2e; --mm:#c9a071; --bad:#e07b5f; } }
   body { margin:0; padding:28px 16px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
   main { max-width:720px; margin:0 auto; }
   h1 { font-size:1.6rem; margin:0; letter-spacing:-.01em; display:flex; align-items:center; gap:10px; }
@@ -298,7 +298,7 @@ const report = (() => {
   const pct = (n, t) => t ? (100 * n / t).toFixed(n && 100 * n / t < 0.1 ? 2 : 1) + '%' : '–';
   let base = 'report';
   function draw(d) {
-    const c = Object.fromEntries(['bg', 'card', 'fg', 'muted', 'line', 'leaf', 'ripe', 'brown'].map((k) => [k, css('--' + k)]));
+    const c = Object.fromEntries(['bg', 'card', 'fg', 'muted', 'line', 'leaf', 'ripe', 'brown', 'mm'].map((k) => [k, css('--' + k)]));
     const total = d.total, rype = d.rypeRemoved ?? d.affected, mm = d.mmRemoved || 0, kept = total - rype - mm, human = rype + mm;
     const unit = d.paired ? 'pairs' : 'reads', thr = d.threshold;
     base = d.files[0].name.replace(/\.(masked|classified).*$/, '');
@@ -309,7 +309,7 @@ const report = (() => {
     const w0 = ctx.measureText(pct(human, total)).width;
     ctx.font = '500 16px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.fillText(`of ${fmt(total)} ${unit} were human and removed`, 24 + w0 + 12, 82);
     // stacked bar: rype | minimap2 | survived
-    const bx = 24, by = 104, bw = W - 48, bh = 22, segs = [[rype, c.ripe, 'rype'], [mm, c.brown, 'minimap2'], [kept, c.leaf, 'survived']];
+    const bx = 24, by = 104, bw = W - 48, bh = 22, segs = [[rype, c.ripe, 'rype'], [mm, c.mm, 'minimap2'], [kept, c.leaf, 'survived']];
     let x = bx; ctx.save(); ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.clip();
     ctx.fillStyle = c.line; ctx.fillRect(bx, by, bw, bh);
     for (const [n, col] of segs) { const w = total ? bw * n / total : 0; ctx.fillStyle = col; ctx.fillRect(x, by, w, bh); x += w; }
@@ -323,16 +323,20 @@ const report = (() => {
     ctx.font = '500 10px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.textAlign = 'right';
     for (let p = 1; 10 ** p <= maxN; p++) { const y = Math.round(hy + hh - yOf(10 ** p)) + .5; ctx.beginPath(); ctx.moveTo(hx, y); ctx.lineTo(hx + hw, y); ctx.stroke(); ctx.fillText(p >= 6 ? 10 ** (p - 6) + 'M' : p >= 3 ? 10 ** (p - 3) + 'k' : String(10 ** p), hx - 6, y + 3); }
     const removedBin = (b) => (b - 1) / 100 >= thr - 1e-9; // bin b holds scores in [(b-1)/100, b/100)
+    // Bar height is the bin's count (log scale); a bin rype kept is split by share:
+    // light brown at the bottom for what minimap2 then removed, green on top for what survived.
     for (let b = 0; b < d.hist.length; b++) {
       const n = d.hist[b]; if (!n) continue;
-      const x0 = b === 0 ? hx : hx + gap + (b - 1) * binW, h = Math.max(1.5, yOf(n));
-      ctx.fillStyle = b === 0 ? c.leaf : removedBin(b) ? c.ripe : c.leaf;
-      ctx.fillRect(x0, hy + hh - h, Math.max(1, (b === 0 ? 24 : binW) - 0.5), h);
+      const x0 = b === 0 ? hx : hx + gap + (b - 1) * binW, w = Math.max(1, (b === 0 ? 24 : binW) - 0.5), h = Math.max(1.5, yOf(n)), y0 = hy + hh - h;
+      if (b > 0 && removedBin(b)) { ctx.fillStyle = c.ripe; ctx.fillRect(x0, y0, w, h); continue; }
+      const hm = d.histMm ? h * d.histMm[b] / n : 0;
+      ctx.fillStyle = c.leaf; ctx.fillRect(x0, y0, w, h - hm);
+      if (hm) { ctx.fillStyle = c.mm; ctx.fillRect(x0, y0 + h - hm, w, hm); }
     }
     ctx.fillStyle = c.muted; ctx.font = '500 11px system-ui, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('no hit', hx + 12, hy + hh + 16);
     for (const v of [0, 0.25, 0.5, 0.75, 1]) { const tx = hx + gap + v * 100 * binW + (v === 1 ? binW : 0); ctx.fillText(v.toFixed(2), tx, hy + hh + 16); }
-    ctx.textAlign = 'left'; ctx.fillText(`${unit}, log scale (tallest bin ${fmt(maxN)})`, hx, hy + hh + 34);
+    ctx.textAlign = 'left'; ctx.fillText(`${unit}, log scale (tallest bin ${fmt(maxN)})` + (d.histMm ? '; left of the threshold, light brown is the share minimap2 removed' : ''), hx, hy + hh + 34);
     // threshold marker: everything at/right of it was removed by rype
     const tx = hx + gap + thr * 100 * binW;
     ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = c.brown; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(tx, hy + 6); ctx.lineTo(tx, hy + hh); ctx.stroke(); ctx.restore();
@@ -363,7 +367,7 @@ function onWorkerMessage(e) {
     setRunning(false); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     if (d.hist) report.draw(d);
-    window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, readType: radio('rt'), threshold: threshold(), hist: d.hist, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
+    window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, readType: radio('rt'), threshold: threshold(), hist: d.hist, histMm: d.histMm, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
     window.__files = d.files; window.__phases = d.phases;
   } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
   } else if (d.type === 'error') {

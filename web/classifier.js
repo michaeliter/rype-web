@@ -50,7 +50,7 @@ function takeOut(outs, ptrIdx, lenIdx) { const p = u32(outs, ptrIdx), l = u32(ou
 
 function classify({ seq, mode, b1, b2, threshold }) {
   const t = performance.now();
-  const outs = M._malloc(32);
+  const outs = M._malloc(28);
   const p1 = M._malloc(b1.byteLength); M.HEAPU8.set(new Uint8Array(b1), p1);
   const p2 = b2 ? M._malloc(b2.byteLength) : 0; if (b2) M.HEAPU8.set(new Uint8Array(b2), p2);
   let rc, hist = 0;
@@ -58,15 +58,16 @@ function classify({ seq, mode, b1, b2, threshold }) {
     rc = M.ccall('mask_classify', 'number', Array(9).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12]);
   } else {
     hist = M._malloc(HIST_BINS * 4); M.HEAPU8.fill(0, hist, hist + HIST_BINS * 4);
-    rc = M.ccall('mask_filter', 'number', Array(12).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12, outs + 16, outs + 20, hist]);
+    rc = M.ccall('mask_filter', 'number', Array(13).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12, outs + 16, outs + 20, hist, outs + 24]);
   }
   M._free(p1); if (p2) M._free(p2);
   if (rc !== 0) { M._free(outs); throw new Error(lastError()); }
   const r = mode === 'classify'
     ? { total: u32(outs, 2), affected: u32(outs, 3), out1: takeOut(outs, 0, 1), out2: null }
-    : { total: u32(outs, 4), affected: u32(outs, 5), out1: takeOut(outs, 0, 1), out2: b2 ? takeOut(outs, 2, 3) : null, hist: M.HEAPU32.slice(hist >>> 2, (hist >>> 2) + HIST_BINS) };
+    : { total: u32(outs, 4), affected: u32(outs, 5), out1: takeOut(outs, 0, 1), out2: b2 ? takeOut(outs, 2, 3) : null, hist: M.HEAPU32.slice(hist >>> 2, (hist >>> 2) + HIST_BINS), keptBins: null };
+  if (mode !== 'classify') { const kb = u32(outs, 6), nk = r.total - r.affected; r.keptBins = M.HEAPU8.slice(kb, kb + nk); M._mask_free(kb); }
   M._free(outs); if (hist) M._free(hist);
-  const transfer = [r.out1.buffer, ...(r.out2 ? [r.out2.buffer] : [])];
+  const transfer = [r.out1.buffer, ...(r.out2 ? [r.out2.buffer] : []), ...(r.keptBins ? [r.keptBins.buffer] : [])];
   post('result', { seq, ...r, ms: performance.now() - t, bytesFetched: FsStats.bytesFetched, heapBytes: M.HEAPU8.length }, transfer);
 }
 

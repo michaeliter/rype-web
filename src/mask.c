@@ -3,7 +3,8 @@
 // Two operations, both single- or paired-end (pass buf2 == NULL for single-end):
 //   mask_filter    - drop every record (both mates) whose best containment score
 //                    is at/above the threshold; returns the surviving FASTQ
-//                    record(s) and a histogram of the best scores (for the report).
+//                    record(s), a histogram of the best scores and, per surviving
+//                    record in order, its histogram bin (for the report).
 //   mask_classify  - return rype's native TSV: read_id \t bucket_name \t score.
 // FASTQ records are parsed here because rype's needletail reader is off on wasm.
 #include <stdint.h>
@@ -92,11 +93,13 @@ static char *copy_kept(const char *buf, size_t len, const Parsed *p, const uint8
 // shared minimizer at all, bin 1 + floor(score * 100) the best score across
 // buckets. Classification runs at threshold 0 so every score is seen; the
 // threshold is then applied here with rype's own comparison (score >= threshold).
+// kept_bins: malloc'd, one byte per surviving record in output order (free with
+// mask_free), so a later pass can say which bins its removals came from.
 int mask_filter(const char *buf1, size_t len1, const char *buf2, size_t len2, double threshold,
                 char **out1, size_t *out1_len, char **out2, size_t *out2_len,
-                size_t *n_total, size_t *n_removed, uint32_t *hist) {
+                size_t *n_total, size_t *n_removed, uint32_t *hist, uint8_t **kept_bins) {
 	g_err[0] = 0;
-	*out1 = NULL; *out1_len = 0; *n_total = 0; *n_removed = 0;
+	*out1 = NULL; *out1_len = 0; *n_total = 0; *n_removed = 0; *kept_bins = NULL;
 	if (buf2) { *out2 = NULL; *out2_len = 0; }
 	Parsed p1, p2; RypeResultArray *res;
 	if (classify_buffers(buf1, len1, buf2, len2, 0.0, &p1, &p2, &res) != 0) { free(p1.recs); free(p2.recs); return -1; }
@@ -113,18 +116,20 @@ int mask_filter(const char *buf1, size_t len1, const char *buf2, size_t len2, do
 		}
 		rype_results_free(res);
 	}
+	uint8_t *kb = malloc(p1.n ? p1.n : 1); size_t nk = 0;
+	if (!kb) { set_err("out of memory"); free(hit); free(best); free(p1.recs); free(p2.recs); return -1; }
 	for (size_t i = 0; i < p1.n; i++) {
-		if (!hit[i]) { hist[0]++; continue; }
-		int b = (int)(best[i] * 100 + 1e-9); if (b > 100) b = 100;
-		hist[1 + b]++;
-		hit[i] = best[i] >= threshold;
-		if (hit[i]) (*n_removed)++;
+		int b = 0;
+		if (hit[i]) { b = 1 + (int)(best[i] * 100 + 1e-9); if (b > MASK_HIST_BINS - 1) b = MASK_HIST_BINS - 1; }
+		hist[b]++;
+		hit[i] = hit[i] && best[i] >= threshold;
+		if (hit[i]) (*n_removed)++; else kb[nk++] = (uint8_t)b;
 	}
-	free(best);
+	free(best); *kept_bins = kb;
 	*out1 = copy_kept(buf1, len1, &p1, hit, out1_len);
 	int ok = *out1 != NULL;
 	if (ok && buf2) { *out2 = copy_kept(buf2, len2, &p2, hit, out2_len); ok = *out2 != NULL; }
-	if (!ok) set_err("out of memory");
+	if (!ok) { set_err("out of memory"); free(kb); *kept_bins = NULL; }
 	free(hit); free(p1.recs); free(p2.recs);
 	return ok ? 0 : -1;
 }
