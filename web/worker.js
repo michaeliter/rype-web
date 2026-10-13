@@ -127,6 +127,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   if (mode === 'classify') await sinks[0].write(new TextEncoder().encode('read_id\tbucket_name\tscore\n'));
 
   let total = 0, affected = 0, tClassify = 0, tTake = 0, tWrite = 0, batches = 0;
+  const hist = new Uint32Array(102); // best containment score per record, summed over batches (see classifier.js)
   const fetched = new Map(); // classifier -> its cumulative index bytes fetched
   const bytesFetched = () => [...fetched.values()].reduce((a, b) => a + b, 0);
   const phases = () => ({ read: RecordReader.tPull, batch: tTake, classify: tClassify, write: tWrite, batches, workers: pool.length });
@@ -158,6 +159,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
       const r = results.get(written); results.delete(written);
       const t = performance.now();
       total += r.total; affected += r.affected; tClassify += r.ms;
+      if (r.hist) for (let i = 0; i < hist.length; i++) hist[i] += r.hist[i];
       await sinks[0].write(r.out1);
       if (r.out2) await sinks[1].write(r.out2);
       tWrite += performance.now() - t; batches++;
@@ -201,7 +203,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   await draining; check();
   const files = [];
   for (const s of sinks) files.push(await s.close());
-  return { files, total, affected, bytesFetched: bytesFetched(), phases: phases() };
+  return { files, total, affected, bytesFetched: bytesFetched(), phases: phases(), hist: mode === 'filter' ? Array.from(hist) : null };
 }
 
 
@@ -293,7 +295,7 @@ async function run(msg) {
   const midNames = (tag) => [`${base}.${tag}${r2 ? '.R1' : ''}.fastq`, ...(r2 ? [`${base}.${tag}.R2.fastq`] : [])];
   const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', names: twoPass ? midNames('rype') : finalNames, gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
-    post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases });
+    post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
   }
   // Pass 2: minimap2 over the T2T parts, `mmWorkers` parts at a time; each
@@ -312,7 +314,7 @@ async function run(msg) {
   }
   for (const f of stale) { try { await dir.removeEntry(f.name); } catch {} }
   post('done', { mode, total: pass1.total, affected: pass1.affected + mmRemoved, rypeRemoved: pass1.affected, mmRemoved, elapsedMs: performance.now() - t0,
-    bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2,
+    bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, threshold: msg.threshold,
     phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc } } });
 }
 

@@ -45,6 +45,7 @@ async function mountIndex(msg) {
 
 // ---------------------------------------------------------------- one batch
 const u32 = (p, i) => u32At(M, p + 4 * i);
+const HIST_BINS = 102; // MASK_HIST_BINS in mask.c: no-hit bin + 101 bins of 0.01 containment
 function takeOut(outs, ptrIdx, lenIdx) { const p = u32(outs, ptrIdx), l = u32(outs, lenIdx); const b = M.HEAPU8.slice(p, p + l); M._mask_free(p); return b; }
 
 function classify({ seq, mode, b1, b2, threshold }) {
@@ -52,18 +53,19 @@ function classify({ seq, mode, b1, b2, threshold }) {
   const outs = M._malloc(32);
   const p1 = M._malloc(b1.byteLength); M.HEAPU8.set(new Uint8Array(b1), p1);
   const p2 = b2 ? M._malloc(b2.byteLength) : 0; if (b2) M.HEAPU8.set(new Uint8Array(b2), p2);
-  let rc;
+  let rc, hist = 0;
   if (mode === 'classify') {
     rc = M.ccall('mask_classify', 'number', Array(9).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12]);
   } else {
-    rc = M.ccall('mask_filter', 'number', Array(11).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12, outs + 16, outs + 20]);
+    hist = M._malloc(HIST_BINS * 4); M.HEAPU8.fill(0, hist, hist + HIST_BINS * 4);
+    rc = M.ccall('mask_filter', 'number', Array(12).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, threshold, outs, outs + 4, outs + 8, outs + 12, outs + 16, outs + 20, hist]);
   }
   M._free(p1); if (p2) M._free(p2);
   if (rc !== 0) { M._free(outs); throw new Error(lastError()); }
   const r = mode === 'classify'
     ? { total: u32(outs, 2), affected: u32(outs, 3), out1: takeOut(outs, 0, 1), out2: null }
-    : { total: u32(outs, 4), affected: u32(outs, 5), out1: takeOut(outs, 0, 1), out2: b2 ? takeOut(outs, 2, 3) : null };
-  M._free(outs);
+    : { total: u32(outs, 4), affected: u32(outs, 5), out1: takeOut(outs, 0, 1), out2: b2 ? takeOut(outs, 2, 3) : null, hist: M.HEAPU32.slice(hist >>> 2, (hist >>> 2) + HIST_BINS) };
+  M._free(outs); if (hist) M._free(hist);
   const transfer = [r.out1.buffer, ...(r.out2 ? [r.out2.buffer] : [])];
   post('result', { seq, ...r, ms: performance.now() - t, bytesFetched: FsStats.bytesFetched, heapBytes: M.HEAPU8.length }, transfer);
 }

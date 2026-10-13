@@ -35,6 +35,7 @@
   progress { width:100%; height:8px; appearance:none; -webkit-appearance:none; border:0; background:var(--line); border-radius:999px; overflow:hidden; }
   progress::-webkit-progress-bar { background:var(--line); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
   #funnel:not([hidden]) { display:block; margin:10px auto 4px; width:min(100%, 360px); height:auto; }
+  #report { display:block; width:100%; height:auto; border-radius:10px; }
   table { border-collapse:collapse; margin-top:8px; }
   td { padding:2px 14px 2px 0; }
   td:first-child { color:var(--muted); }
@@ -78,7 +79,7 @@
     <div id="plan" class="status" style="margin:0 0 8px"></div>
     <label class="inline"><input id="thrOn" type="checkbox"> Set the containment threshold</label>
     <label class="inline"><input id="gz" type="checkbox"> gzip output</label>
-    <div id="thrRow" hidden class="row" style="margin-top:4px"><div style="flex:0 1 220px"><label for="thr">Containment threshold (default 0 for short reads, 0.05 for long)</label><input id="thr" type="number" min="0" max="1" step="0.01"></div></div>
+    <div id="thrRow" hidden class="row" style="margin-top:4px"><div style="flex:1 1 320px"><label for="thr">Containment threshold (default 0 for short reads, 0.05 for long)</label><input id="thr" type="number" min="0" max="1" step="0.01"></div></div>
     <div style="margin-top:14px"><button id="run" disabled>Run</button> <button id="cancel" class="secondary" hidden>Cancel</button></div>
     <div id="runStatus" class="status"></div>
     <canvas id="funnel" width="360" height="230" hidden aria-label="reads ripening through the filter"></canvas>
@@ -92,6 +93,13 @@
     </table>
     <div id="downloads"></div>
     <p class="note">Green bananas go in, ripe ones come out. Reads are screened in batches across several rype workers; short reads then get a minimap2 pass over a multi-part human index. Index shards are read by byte range on demand and never stored. Outputs are written to this browser's private storage as they are produced and offered for download at the end.</p>
+  </div>
+
+  <div id="reportCard" class="card" hidden>
+    <h2>Report</h2>
+    <canvas id="report" width="1440" height="900" aria-describedby="rpTable"></canvas>
+    <table id="rpTable"></table>
+    <div style="margin-top:10px"><button id="rpSave" class="secondary">Save report as PNG</button></div>
   </div>
 </main>
 
@@ -216,7 +224,7 @@ async function startRun() {
   try { await detecting; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
   catch (e) { $('runStatus').textContent = 'Error: ' + e.message; $('runStatus').classList.add('err'); window.__error = e.message; return; }
   setRunning(true);
-  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0;
+  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0; $('reportCard').hidden = true;
   $('sAffectedLabel').textContent = mode === 'classify' ? 'Hits reported' : 'Removed (hit the index)';
   $('runStatus').textContent = 'Running…'; $('runStatus').classList.remove('err');
   worker.postMessage({ type: 'run', mode, r1: r1(), r2: r2(), threshold: threshold(),
@@ -273,13 +281,71 @@ async function cancelRun() {
   if (!running) return;
   worker.terminate(); spawnWorker();
   indexReady = false; setRunning(false);
-  $('bar').hidden = true; $('stats').hidden = true; $('downloads').innerHTML = '';
+  $('bar').hidden = true; $('stats').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
   $('runStatus').textContent = 'Cancelled.'; window.__cancelled = true;
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry('rype-out', { recursive: true }); } catch {} // partial outputs
   if (lastMount) { setIdxStatus('Reloading index…'); worker.postMessage(lastMount); }
 }
 $('cancel').addEventListener('click', cancelRun);
 window.__cancel = cancelRun;
+
+// Report: one canvas (so it saves as a single PNG) with the human fraction, a bar of
+// in / removed by rype / removed by minimap2 / survived, and the distribution of each
+// read's best containment score with the threshold marked; the same numbers in a table.
+const report = (() => {
+  const cv = $('report'), ctx = cv.getContext('2d'), W = 720, H = 450, S = cv.width / W;
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const pct = (n, t) => t ? (100 * n / t).toFixed(n && 100 * n / t < 0.1 ? 2 : 1) + '%' : '–';
+  let base = 'report';
+  function draw(d) {
+    const c = Object.fromEntries(['bg', 'card', 'fg', 'muted', 'line', 'leaf', 'ripe', 'brown'].map((k) => [k, css('--' + k)]));
+    const total = d.total, rype = d.rypeRemoved ?? d.affected, mm = d.mmRemoved || 0, kept = total - rype - mm, human = rype + mm;
+    const unit = d.paired ? 'pairs' : 'reads', thr = d.threshold;
+    base = d.files[0].name.replace(/\.(masked|classified).*$/, '');
+    ctx.setTransform(S, 0, 0, S, 0, 0); ctx.fillStyle = c.card; ctx.fillRect(0, 0, W, H);
+    ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText(`${base}  ·  ${radio('rt')} reads  ·  rype threshold ${thr}` + (mm || d.mmRemoved != null ? '  ·  minimap2 second pass' : ''), 24, 30);
+    ctx.font = '700 44px system-ui, sans-serif'; ctx.fillStyle = c.fg; ctx.fillText(pct(human, total), 24, 82);
+    const w0 = ctx.measureText(pct(human, total)).width;
+    ctx.font = '500 16px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.fillText(`of ${fmt(total)} ${unit} were human and removed`, 24 + w0 + 12, 82);
+    // stacked bar: rype | minimap2 | survived
+    const bx = 24, by = 104, bw = W - 48, bh = 22, segs = [[rype, c.ripe, 'rype'], [mm, c.brown, 'minimap2'], [kept, c.leaf, 'survived']];
+    let x = bx; ctx.save(); ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.clip();
+    ctx.fillStyle = c.line; ctx.fillRect(bx, by, bw, bh);
+    for (const [n, col] of segs) { const w = total ? bw * n / total : 0; ctx.fillStyle = col; ctx.fillRect(x, by, w, bh); x += w; }
+    ctx.restore();
+    ctx.font = '500 12px system-ui, sans-serif'; x = bx;
+    for (const [n, col, name] of segs) { ctx.fillStyle = col; ctx.fillRect(x, by + bh + 10, 10, 10); ctx.fillStyle = c.fg; const t = `${name} ${fmt(n)} (${pct(n, total)})`; ctx.fillText(t, x + 15, by + bh + 19); x += ctx.measureText(t).width + 34; }
+    // histogram of best containment score: bin 0 = no shared minimizer, then 101 bins of 0.01
+    const hx = 56, hy = 180, hw = W - 80, hh = 200, gap = 52, binW = (hw - gap) / 101, maxN = Math.max(1, ...d.hist), yOf = (n) => hh * Math.log10(1 + n) / Math.log10(1 + maxN);
+    ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = c.fg; ctx.fillText('Best containment score per ' + unit.replace(/s$/, ''), hx, hy - 8);
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx, hy + hh + .5); ctx.lineTo(hx + hw, hy + hh + .5); ctx.stroke();
+    ctx.font = '500 10px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.textAlign = 'right';
+    for (let p = 1; 10 ** p <= maxN; p++) { const y = Math.round(hy + hh - yOf(10 ** p)) + .5; ctx.beginPath(); ctx.moveTo(hx, y); ctx.lineTo(hx + hw, y); ctx.stroke(); ctx.fillText(p >= 6 ? 10 ** (p - 6) + 'M' : p >= 3 ? 10 ** (p - 3) + 'k' : String(10 ** p), hx - 6, y + 3); }
+    const removedBin = (b) => (b - 1) / 100 >= thr - 1e-9; // bin b holds scores in [(b-1)/100, b/100)
+    for (let b = 0; b < d.hist.length; b++) {
+      const n = d.hist[b]; if (!n) continue;
+      const x0 = b === 0 ? hx : hx + gap + (b - 1) * binW, h = Math.max(1.5, yOf(n));
+      ctx.fillStyle = b === 0 ? c.leaf : removedBin(b) ? c.ripe : c.leaf;
+      ctx.fillRect(x0, hy + hh - h, Math.max(1, (b === 0 ? 24 : binW) - 0.5), h);
+    }
+    ctx.fillStyle = c.muted; ctx.font = '500 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('no hit', hx + 12, hy + hh + 16);
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) { const tx = hx + gap + v * 100 * binW + (v === 1 ? binW : 0); ctx.fillText(v.toFixed(2), tx, hy + hh + 16); }
+    ctx.textAlign = 'left'; ctx.fillText(`${unit}, log scale (tallest bin ${fmt(maxN)})`, hx, hy + hh + 34);
+    // threshold marker: everything at/right of it was removed by rype
+    const tx = hx + gap + thr * 100 * binW;
+    ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = c.brown; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(tx, hy + 6); ctx.lineTo(tx, hy + hh); ctx.stroke(); ctx.restore();
+    ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = c.brown;
+    const lbl = `threshold ${thr}: removed →`; const lw = ctx.measureText(lbl).width;
+    ctx.fillText(lbl, Math.min(tx + 6, hx + hw - lw), hy + 16);
+    $('rpTable').innerHTML = [[`${unit[0].toUpperCase() + unit.slice(1)} in`, total, ''], ['Removed by rype (score ≥ ' + thr + ')', rype, pct(rype, total)], ...(d.mmRemoved != null ? [['Removed by minimap2', mm, pct(mm, total)]] : []), ['Survived (downloaded)', kept, pct(kept, total)]]
+      .map(([k, n, p]) => `<tr><td>${k}</td><td>${fmt(n)}</td><td>${p}</td></tr>`).join('');
+    $('reportCard').hidden = false;
+  }
+  $('rpSave').addEventListener('click', () => cv.toBlob((b) => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `${base}.report.png`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }, 'image/png'));
+  return { draw };
+})();
 
 function showStats(d) {
   $('sTotal').textContent = fmt(d.total); $('sAffected').textContent = fmt(d.affected);
@@ -296,7 +362,8 @@ function onWorkerMessage(e) {
   } else if (d.type === 'done') {
     setRunning(false); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
-    window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, readType: radio('rt'), threshold: threshold(), files: d.files.map((f) => ({ name: f.name, size: f.size })) };
+    if (d.hist) report.draw(d);
+    window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, readType: radio('rt'), threshold: threshold(), hist: d.hist, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
     window.__files = d.files; window.__phases = d.phases;
   } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
   } else if (d.type === 'error') {

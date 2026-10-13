@@ -1,8 +1,9 @@
 // Thin C shim over rype's C API for browser-side FASTQ processing.
 //
 // Two operations, both single- or paired-end (pass buf2 == NULL for single-end):
-//   mask_filter    - drop every record (both mates) that classifies at/above the
-//                    threshold; returns the surviving FASTQ record(s).
+//   mask_filter    - drop every record (both mates) whose best containment score
+//                    is at/above the threshold; returns the surviving FASTQ
+//                    record(s) and a histogram of the best scores (for the report).
 //   mask_classify  - return rype's native TSV: read_id \t bucket_name \t score.
 // FASTQ records are parsed here because rype's needletail reader is off on wasm.
 #include <stdint.h>
@@ -12,6 +13,7 @@
 #include "rype.h"
 #include "fastq.h"
 
+#define MASK_HIST_BINS 102 // no-hit bin + 101 bins of 0.01 (score 1.0 lands in the last)
 static RypeIndex *g_index = NULL;
 static char g_err[1024];
 
@@ -86,24 +88,39 @@ static char *copy_kept(const char *buf, size_t len, const Parsed *p, const uint8
 }
 
 // Host filtering. out2/out2_len are only written when buf2 != NULL.
+// hist[MASK_HIST_BINS] is added to (not cleared): bin 0 counts records with no
+// shared minimizer at all, bin 1 + floor(score * 100) the best score across
+// buckets. Classification runs at threshold 0 so every score is seen; the
+// threshold is then applied here with rype's own comparison (score >= threshold).
 int mask_filter(const char *buf1, size_t len1, const char *buf2, size_t len2, double threshold,
                 char **out1, size_t *out1_len, char **out2, size_t *out2_len,
-                size_t *n_total, size_t *n_removed) {
+                size_t *n_total, size_t *n_removed, uint32_t *hist) {
 	g_err[0] = 0;
 	*out1 = NULL; *out1_len = 0; *n_total = 0; *n_removed = 0;
 	if (buf2) { *out2 = NULL; *out2_len = 0; }
 	Parsed p1, p2; RypeResultArray *res;
-	if (classify_buffers(buf1, len1, buf2, len2, threshold, &p1, &p2, &res) != 0) { free(p1.recs); free(p2.recs); return -1; }
+	if (classify_buffers(buf1, len1, buf2, len2, 0.0, &p1, &p2, &res) != 0) { free(p1.recs); free(p2.recs); return -1; }
 	*n_total = p1.n;
 	uint8_t *hit = calloc(p1.n ? p1.n : 1, 1);
-	if (!hit) { set_err("out of memory"); free(p1.recs); free(p2.recs); rype_results_free(res); return -1; }
+	double *best = calloc(p1.n ? p1.n : 1, sizeof *best);
+	if (!hit || !best) { set_err("out of memory"); free(hit); free(best); free(p1.recs); free(p2.recs); rype_results_free(res); return -1; }
 	if (res) {
 		for (size_t i = 0; i < res->len; i++) {
 			int64_t id = res->data[i].query_id;
-			if (id >= 0 && (size_t)id < p1.n && !hit[id]) { hit[id] = 1; (*n_removed)++; }
+			if (id < 0 || (size_t)id >= p1.n) continue;
+			if (!hit[id] || res->data[i].score > best[id]) best[id] = res->data[i].score;
+			hit[id] = 1; // any result means at least one shared minimizer
 		}
 		rype_results_free(res);
 	}
+	for (size_t i = 0; i < p1.n; i++) {
+		if (!hit[i]) { hist[0]++; continue; }
+		int b = (int)(best[i] * 100 + 1e-9); if (b > 100) b = 100;
+		hist[1 + b]++;
+		hit[i] = best[i] >= threshold;
+		if (hit[i]) (*n_removed)++;
+	}
+	free(best);
 	*out1 = copy_kept(buf1, len1, &p1, hit, out1_len);
 	int ok = *out1 != NULL;
 	if (ok && buf2) { *out2 = copy_kept(buf2, len2, &p2, hit, out2_len); ok = *out2 != NULL; }

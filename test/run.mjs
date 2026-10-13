@@ -98,6 +98,11 @@ try {
           if (want.length !== got.length || want.some((id, j) => id !== got[j])) problems.push(`${f.name}: read ids differ (${got.length} vs ${want.length} expected)`);
         }
       });
+      if (r.hist) { // the report's histogram must account for every record, and its bins at/above the threshold are exactly rype's removals
+        const sum = r.hist.reduce((a, b) => a + b, 0), above = r.hist.reduce((a, n, b) => a + (b >= 1 && (b - 1) / 100 >= r.threshold - 1e-9 ? n : 0), 0), rype = r.rypeRemoved ?? r.affected;
+        if (sum !== r.total) problems.push(`hist sums to ${sum}, total ${r.total}`);
+        if (above !== rype) problems.push(`hist bins >= threshold hold ${above}, rype removed ${rype}`);
+      }
       if (e.log_includes && !r.log.some((l) => l.includes(e.log_includes))) problems.push(`log lacks "${e.log_includes}"`);
       for (const l of logs) if (/^(cancel|clear):/.test(l)) problems.push(l);
     }
