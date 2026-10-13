@@ -168,11 +168,17 @@ leaving the same 3 pairs.
 | native survivor extraction (python, not optimised) | 50.4 s | 1.4 GB |
 | native minimap2 sr, 4 threads, 5 parts | 21.4 s | 3.2 GB |
 | browser, 4 rype workers + 4 part workers, end to end | 52.5-61.8 s | ~8 GB rype, ~12 GB minimap2 phase |
-| miint native SQL cascade, SET threads=4 (read_fastx -> rype_classify -> anti join -> align_minimap2 -> COPY FASTQ) | 175-183 s total: read_fastx 139 s, rype_classify 26 s, align_minimap2 17 s | 15.1 GB |
+| miint native SQL cascade, tables, SET threads=4 (CREATE TABLE from read_fastx -> rype_classify -> anti join -> align_minimap2 -> COPY FASTQ) | 175-183 s total: CREATE TABLE 139 s, rype_classify 26 s, align_minimap2 17 s | 15.1 GB |
+| miint native SQL cascade, views only, SET threads=4 (same stages, no tables; 2026-10-13) | 119.7 s | 10.3 GB |
+| miint `read_fastx` alone, `SELECT count(*)` over both mates | 22.2 s | 50 MB |
 
-miint's SQL pipeline gives the same 3 survivors; its time is dominated by materialising the
-10M pairs from gzipped FASTQ into a table (139 s), after which classification is fast (26 s on
-4 threads). SQL used: `test/miint_cascade.sql`.
+miint's SQL pipeline gives the same 3 survivors either way (`test/miint_cascade.sql`,
+`test/miint_cascade_views.sql`). Reading the gzipped pairs is cheap (22 s); the 139 s in the
+table variant is materialising 10M pairs with qualities into a DuckDB table. The view
+variant streams but re-runs `read_fastx` for every consumer of the view (rype_classify,
+the anti join, align_minimap2's input, the final COPY), because the functions take a
+relation name and return only hit ids; a pass-through filter function would make it a
+single read.
 The browser overlaps gunzip with classification and never materialises the survivors on
 disk, so it matches native rype alone; the minimap2 phase is small here because rype
 removes 99.97% of a human sample first. Reproduce: `CASES=test/perf-cascade.json npm test`
