@@ -369,7 +369,8 @@ function onWorkerMessage(e) {
   } else if (d.type === 'error') {
     setRunning(false);
     const el = indexReady ? $('runStatus') : $('idxStatus');
-    el.textContent = 'Error: ' + d.msg; el.classList.add('err'); window.__error = d.msg;
+    const hint = !indexReady && lastMount?.source === 'url' ? ` (index at ${lastMount.base}; is that server running and sending CORS headers?)` : '';
+    el.textContent = 'Error: ' + d.msg + hint; el.classList.add('err'); window.__error = d.msg;
   } else if (d.type === 'log') { console.log('[rype]', d.msg); (window.__log ||= []).push(d.msg); }
 }
 
