@@ -180,7 +180,11 @@ headless Chrome, waits for `window.__result`, and checks counts and SHA-256 of t
 outputs against `test/cases.json` (truth files under `testdata/`, all produced by the
 native tools). Cases needing the big local indexes (`testdata/human.ryxdi`,
 `chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
-`scratch/test-out/<case>/`. A case with `"cancel": true` (or `"cancel": "<stage>"`, e.g.
+`scratch/test-out/<case>/`. `npm test` then runs `test/mm_parts_parity.mjs`: every part of
+`testdata/chm13_sr_parts.mmi` is mounted by byte range as `mm_worker.js` does and the
+sr_mix pairs mapped; the hit set must equal native minimap2's for that part
+(`testdata/sr_parts_truth/part<i>.txt`, regenerated with `tools/mm_parts_truth.sh`).
+Skipped when the index is absent. A case with `"cancel": true` (or `"cancel": "<stage>"`, e.g.
 `"minimap2"`) presses Cancel once that state is shown, then starts again and checks the
 rerun's result; `"clear": "<input id>"` presses that picker's × before the run and
 re-uploads the file.

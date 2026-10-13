@@ -2,6 +2,11 @@
   "name": "rype-web",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node test/run.mjs" },
-  "devDependencies": { "puppeteer-core": "^24" }
+  "scripts": {
+    "test": "node test/run.mjs && node test/mm_parts_parity.mjs",
+    "test:parity": "node test/mm_parts_parity.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24"
+  }
 }
