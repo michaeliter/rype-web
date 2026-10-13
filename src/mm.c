@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "minimap.h"
+#include "bseq.h" // seq_comp_table
 #include "fastq.h"
 
 static mm_idx_t *g_mi = NULL;
@@ -69,17 +70,14 @@ int mm_part_hits(const char *buf1, size_t len1, const char *buf2, size_t len2,
 		const char *seqs[2] = { p1.recs[i].seq, buf2 ? p2.recs[i].seq : NULL };
 		int qlens[2] = { (int)p1.recs[i].seq_len, buf2 ? (int)p2.recs[i].seq_len : 0 };
 		for (int m = 0; n_segs == 2 && m < 2; m++) {
-			if (!((m == 0 && (g_mopt.pe_ori >> 1 & 1)) || (m == 1 && (g_mopt.pe_ori & 1)))) continue;
+			if (!((g_mopt.pe_ori >> (1 - m)) & 1)) continue; // bit 1: R1, bit 0: R2
 			size_t L = (size_t)qlens[m];
 			if (L > rc_cap[m]) {
 				char *nb = realloc(rc[m], L);
 				if (!nb) { snprintf(g_err, sizeof g_err, "out of memory"); free(rc[0]); free(rc[1]); free(h); free(p1.recs); free(p2.recs); return -1; }
 				rc[m] = nb; rc_cap[m] = L;
 			}
-			for (size_t j = 0; j < L; j++) {
-				char c = seqs[m][L - 1 - j];
-				rc[m][j] = c == 'A' ? 'T' : c == 'C' ? 'G' : c == 'G' ? 'C' : c == 'T' ? 'A' : c == 'a' ? 't' : c == 'c' ? 'g' : c == 'g' ? 'c' : c == 't' ? 'a' : c;
-			}
+			for (size_t j = 0; j < L; j++) rc[m][j] = seq_comp_table[(uint8_t)seqs[m][L - 1 - j]];
 			seqs[m] = rc[m];
 		}
 		int n_regs[2] = { 0, 0 };

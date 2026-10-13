@@ -1,7 +1,9 @@
-//! C ABI over rammap for the browser's short-read host-filter pass. Mirrors
-//! src/mm.c (minimap2) function for function so web/mm_worker.js can drive
-//! either: load ONE part of a multi-part .mmi, then answer one byte per
-//! record (1 if any mate maps) for each FASTQ batch.
+//! C ABI over rammap for the browser's short-read host-filter pass: the same
+//! exports as src/mm.c (minimap2), so web/mm_worker.js and the Node tests drive
+//! either module by file name alone. Load ONE part of a multi-part .mmi, then
+//! answer one byte per record (1 if any mate maps) for each FASTQ batch.
+//! The FASTQ parser borrows from the batch buffer (no per-record allocation),
+//! which is why rammap's own allocating readers are not used.
 use rammap::align::extend::AlignmentContext;
 use rammap::align::map::MapContext;
 use rammap::align::pipeline::{align_and_format_pair, align_and_format_query, OutputConfig, ReadInfo};
@@ -17,19 +19,23 @@ static mut LAST_ERROR: Vec<u8> = Vec::new();
 
 extern "C" {
     fn malloc(n: usize) -> *mut u8;
+    fn free(p: *mut u8);
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn mm_free(p: *mut u8) { free(p) }
 
 fn set_error(msg: String) {
     unsafe { LAST_ERROR = msg.into_bytes(); LAST_ERROR.push(0); }
 }
 
 #[no_mangle]
-pub extern "C" fn rm_last_error() -> *const c_char {
+pub extern "C" fn mm_last_error() -> *const c_char {
     unsafe { if LAST_ERROR.is_empty() { LAST_ERROR.push(0); } LAST_ERROR.as_ptr() as *const c_char }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rm_part_load(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn mm_part_load(path: *const c_char) -> i32 {
     set_error(String::new());
     let path = CStr::from_ptr(path).to_string_lossy().into_owned();
     let f = match File::open(&path) { Ok(f) => f, Err(e) => { set_error(format!("cannot open index part {path}: {e}")); return -1; } };
@@ -42,11 +48,11 @@ pub unsafe extern "C" fn rm_part_load(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rm_part_n_seq() -> u32 { ALIGNER.as_ref().map_or(0, |a| a.index().seqs.len() as u32) }
+pub unsafe extern "C" fn mm_part_n_seq() -> u32 { ALIGNER.as_ref().map_or(0, |a| a.index().seqs.len() as u32) }
 #[no_mangle]
-pub unsafe extern "C" fn rm_part_k() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().kmer_size as i32) }
+pub unsafe extern "C" fn mm_part_k() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().kmer_size as i32) }
 #[no_mangle]
-pub unsafe extern "C" fn rm_part_w() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().window_size as i32) }
+pub unsafe extern "C" fn mm_part_w() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().window_size as i32) }
 
 struct Rec<'a> { id: &'a [u8], seq: &'a [u8] }
 
@@ -76,9 +82,9 @@ fn parse_fastq(buf: &[u8]) -> Result<Vec<Rec<'_>>, String> {
 
 fn memchr(c: u8, s: &[u8]) -> Option<usize> { s.iter().position(|&b| b == c) }
 
-/// hits: malloc'd, one byte per record in buf1 (free with free()). n_hits: records with a mapping.
+/// hits: malloc'd, one byte per record in buf1 (free with mm_free). n_hits: records with a mapping.
 #[no_mangle]
-pub unsafe extern "C" fn rm_part_hits(buf1: *const u8, len1: usize, buf2: *const u8, len2: usize,
+pub unsafe extern "C" fn mm_part_hits(buf1: *const u8, len1: usize, buf2: *const u8, len2: usize,
                                       hits: *mut *mut u8, n_records: *mut usize, n_hits: *mut usize) -> i32 {
     set_error(String::new());
     let Some(al) = ALIGNER.as_ref() else { set_error("no index part loaded".into()); return -1; };

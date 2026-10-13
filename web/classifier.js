@@ -36,11 +36,7 @@ function localEntries(files, paths) {
 
 async function mountIndex(msg) {
   const entries = msg.source === 'url' ? await remoteEntries(msg.base, msg.chunkBytes || (8 << 20)) : localEntries(msg.files, msg.paths);
-  patchWorkerfsRead(M);
-  try { M.FS.unmount('/index'); } catch {}
-  try { M.FS.mkdir('/index'); } catch {}
-  M.FS.mount(M.WORKERFS, { blobs: entries }, '/index');
-  FsStats.bytesFetched = 0;
+  mountIndexFs(M, entries);
   if (M.ccall('mask_load_index', 'number', ['string'], ['/index']) !== 0) throw new Error(lastError());
   const shards = entries.filter((e) => e.name.startsWith('inverted/'));
   return { k: M._mask_index_k(), w: M._mask_index_w(), buckets: M._mask_index_num_buckets(),
@@ -48,8 +44,7 @@ async function mountIndex(msg) {
 }
 
 // ---------------------------------------------------------------- one batch
-// >>> not >>: a pointer above 2 GiB is negative under a signed shift and indexes nothing.
-const u32 = (p, i) => M.HEAPU32[(p + 4 * i) >>> 2];
+const u32 = (p, i) => u32At(M, p + 4 * i);
 function takeOut(outs, ptrIdx, lenIdx) { const p = u32(outs, ptrIdx), l = u32(outs, lenIdx); const b = M.HEAPU8.slice(p, p + l); M._mask_free(p); return b; }
 
 function classify({ seq, mode, b1, b2, threshold }) {

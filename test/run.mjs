@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readIds } from './util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cases = JSON.parse(fs.readFileSync(path.resolve(root, process.env.CASES || 'test/cases.json'), 'utf8')); // CASES=test/perf-cascade.json for perf runs
@@ -19,7 +20,6 @@ const port = 8700 + Math.floor(Math.random() * 200);
 const server = spawn('node', ['serve.mjs', String(port), '.'], { cwd: root, stdio: ['ignore', 'ignore', 'inherit'] });
 await new Promise((r) => setTimeout(r, 500));
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
-const readIds = (text) => text.split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));
 
 const browser = await puppeteer.launch({ executablePath: chrome, headless: true, protocolTimeout: 0, args: ['--no-sandbox', '--js-flags=--max-old-space-size=8192'] });
 let failed = 0, ran = 0;
@@ -53,10 +53,9 @@ try {
       logs.push('index status after upload: ' + idxStatus);
     }
     if (c.cancel) { // cancel mid-run, then start again: the rerun must produce the full, correct result
-      // true: after the first progress message (reads counted), so batches are really in flight;
-      // string: once that stage is shown, e.g. "minimap2". 'Running…' alone is set before the run message is even posted.
-      if (c.cancel === true) await page.waitForFunction(() => document.getElementById('sTotal').textContent !== '0', { timeout: 600000 });
-      else await page.waitForFunction((w) => document.getElementById('runStatus').textContent.includes(w), { timeout: 600000 }, c.cancel);
+      // true: after the first progress message, so batches are really in flight; string: once
+      // a stage whose name starts with it reports progress, e.g. "minimap2" (stages are named "minimap2 parts 1,2 of 5"). ('Running…' is shown before the run is even posted.)
+      await page.waitForFunction((w) => { const p = window.__progress; return !!p && (w === true ? p.total > 0 : (p.stage || '').startsWith(w)); }, { timeout: 600000 }, c.cancel);
       const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); return { early, status: document.getElementById('runStatus').textContent, cancelHidden: document.getElementById('cancel').hidden, runDisabled: document.getElementById('run').disabled }; });
       if (st.early) logs.push('cancel: run already finished before cancel');
       if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));

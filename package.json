@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test/run.mjs && node test/mm_parts_parity.mjs && PARITY_SHARED=1 node test/mm_parts_parity.mjs",
+    "test": "node test/run.mjs && PARITY_SHARED=1 node test/mm_parts_parity.mjs",
     "test:parity": "node test/mm_parts_parity.mjs"
   },
   "devDependencies": {

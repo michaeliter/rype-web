@@ -63,3 +63,28 @@ function patchWorkerfsRead(M) {
     return c instanceof ChunkedSource ? c.readInto(buffer, offset, length, position) : orig(stream, buffer, offset, length, position);
   };
 }
+// Mount blobs ([{name, data}], data a File/Blob or ChunkedSource) at /index, replacing any
+// previous mount. Patches the read op first, which every mount needs.
+function mountIndexFs(M, blobs) {
+  patchWorkerfsRead(M);
+  try { M.FS.unmount('/index'); } catch {}
+  try { M.FS.mkdir('/index'); } catch {}
+  M.FS.mount(M.WORKERFS, { blobs }, '/index');
+  FsStats.bytesFetched = 0;
+}
+// Read a u32 at a wasm address. >>> not >>: a pointer above 2 GiB is negative under a
+// signed shift and indexes nothing.
+const u32At = (M, p) => M.HEAPU32[p >>> 2];
+// Drive mm_part_hits on a loaded part: one byte per record of b1, 1 if any mate maps.
+function partHits(M, b1, b2) {
+  const outs = M._malloc(12);
+  const p1 = M._malloc(b1.byteLength); M.HEAPU8.set(new Uint8Array(b1), p1);
+  const p2 = b2 ? M._malloc(b2.byteLength) : 0; if (b2) M.HEAPU8.set(new Uint8Array(b2), p2);
+  const rc = M.ccall('mm_part_hits', 'number', Array(7).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, outs, outs + 4, outs + 8]);
+  M._free(p1); if (p2) M._free(p2);
+  if (rc !== 0) { M._free(outs); throw new Error(M.ccall('mm_last_error', 'string', [], [])); }
+  const hp = u32At(M, outs), n = u32At(M, outs + 4), nh = u32At(M, outs + 8);
+  const hits = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs);
+  return { hits, n, nh };
+}
+if (typeof module !== 'undefined') module.exports = { FsStats, ChunkedSource, localSource, remoteSource, remoteSize, patchWorkerfsRead, mountIndexFs, u32At, partHits };

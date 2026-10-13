@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readIds } from './util.mjs';
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mmi = process.argv[2] || path.join(root, 'testdata/chm13_sr_parts.mmi');
@@ -16,40 +17,30 @@ const r1Path = process.argv[3] || path.join(root, 'testdata/sr_mix_r1.fq');
 const r2Path = process.argv[4] || path.join(root, 'testdata/sr_mix_r2.fq');
 if (!fs.existsSync(mmi) || !fs.existsSync(mmi + '.parts.json')) { console.log(`SKIP mm-parts-parity: missing ${mmi} or its .parts.json`); process.exit(0); }
 const parts = JSON.parse(fs.readFileSync(mmi + '.parts.json', 'utf8')).parts;
-const { ChunkedSource, patchWorkerfsRead } = new Function(fs.readFileSync(path.join(root, 'web/fsutil.js'), 'utf8') + '; return { ChunkedSource, patchWorkerfsRead };')();
+const { ChunkedSource, mountIndexFs, partHits } = require(path.join(root, 'web/fsutil.js'));
 // WORKERFS asserts a worker environment and constructs a FileReaderSync at mount; neither is
 // used once the read op is patched to ChunkedSource, so stub both for Node.
 globalThis.WorkerGlobalScope ||= class {}; globalThis.FileReaderSync ||= class {};
 const createMmFilter = require(path.join(root, 'web/mm_filter.js'));
 const fd = fs.openSync(mmi, 'r');
-const readIds = (p) => fs.readFileSync(p, 'utf8').split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));
-const ids = readIds(r1Path);
+const ids = readIds(fs.readFileSync(r1Path, 'utf8'));
 const fq1 = fs.readFileSync(r1Path), fq2 = fs.readFileSync(r2Path);
 const only = process.env.PARTS ? new Set(process.env.PARTS.split(',').map(Number)) : null; // PARTS=1,2 to run a subset
-let failed = 0, shared = null;
+let failed = 0, M = null;
 for (let i = 0; i < parts.length; i++) {
   if (only && !only.has(i)) continue;
   const { offset, size } = parts[i];
   // A fresh module per part, as each mm_worker.js holds exactly one part. PARITY_SHARED=1
   // reloads every part into ONE instance instead: after a ~2 GB part the next
   // allocations land above 2 GiB, which caught pointers being indexed with a signed shift.
-  const M = shared ??= await createMmFilter({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
-  if (!process.env.PARITY_SHARED) shared = null;
-  patchWorkerfsRead(M);
-  const put = (b) => { const ptr = M._malloc(b.length); if (!ptr) throw new Error('malloc failed'); M.HEAPU8.set(b, ptr); return ptr; };
-  const p1 = put(fq1), p2 = put(fq2), l1 = fq1.length, l2 = fq2.length;
+  if (!M || !process.env.PARITY_SHARED) M = await createMmFilter({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
   const src = new ChunkedSource(size, (a, b) => { const buf = new Uint8Array(b - a); fs.readSync(fd, buf, 0, b - a, offset + a); return buf; }, 8 << 20, 4, 0);
-  try { M.FS.unmount('/index'); } catch {} // (fails on a fresh instance: nothing mounted yet)
-  try { M.FS.mkdir('/index'); } catch {}
-  M.FS.mount(M.WORKERFS, { blobs: [{ name: 'part.mmi', data: src }] }, '/index');
+  mountIndexFs(M, [{ name: 'part.mmi', data: src }]);
   let t0 = performance.now();
   if (M.ccall('mm_part_load', 'number', ['string'], ['/index/part.mmi']) !== 0) throw new Error(M.ccall('mm_last_error', 'string', [], []));
   const tLoad = (performance.now() - t0) / 1000;
-  const outs = M._malloc(12);
   t0 = performance.now();
-  if (M.ccall('mm_part_hits', 'number', Array(7).fill('number'), [p1, l1, p2, l2, outs, outs + 4, outs + 8]) !== 0) throw new Error(M.ccall('mm_last_error', 'string', [], []));
-  const hp = M.HEAPU32[outs >>> 2], n = M.HEAPU32[(outs + 4) >>> 2];
-  const hits = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs); M._free(p1); M._free(p2);
+  const { hits } = partHits(M, fq1, fq2);
   const tMap = (performance.now() - t0) / 1000;
   const got = new Set(ids.filter((_, j) => hits[j]));
   const truth = new Set(fs.readFileSync(path.join(root, `testdata/sr_parts_truth/part${i}.txt`), 'utf8').split('\n').filter(Boolean));

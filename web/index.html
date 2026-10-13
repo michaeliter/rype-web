@@ -113,6 +113,7 @@ const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b 
 const radio = (name) => document.querySelector(`input[name=${name}]:checked`).value;
 const r1 = () => $('fq1').files[0] || null, r2 = () => $('fq2').files[0] || null;
 function updateRun() { $('run').disabled = !(indexReady && r1()) || running; $('cancel').hidden = !running; }
+function setRunning(on) { running = on; updateRun(); if (on) funnel.start(); else funnel.stop(); }
 
 document.querySelectorAll('input[name=src]').forEach((el) => el.addEventListener('change', () => { $('srcLocal').hidden = radio('src') !== 'local'; $('srcUrl').hidden = radio('src') !== 'url'; }));
 function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); }
@@ -128,15 +129,15 @@ async function mountUrl(base) {
   if (!base.endsWith('/')) base += '/';
   let bundle = null;
   try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
-  if (bundle && bundle.rype) {
-    if (bundle.minimap2) { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = new URL(bundle.minimap2, base).href; bundleMm = true; }
-    base = new URL(bundle.rype, base).href;
-  }
-  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 }, !!bundle);
+  const bundleMm = bundle?.rype && bundle.minimap2 ? new URL(bundle.minimap2, base).href : null;
+  if (bundle?.rype) base = new URL(bundle.rype, base).href;
+  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024, bundleMm });
 }
-let bundleMm = false; // the second-pass URL came from a bundle; it must not outlive that index
-function mount(status, src, fromBundle = false) {
-  if (bundleMm && !fromBundle) { document.querySelector('input[name=mm][value=none]').click(); $('mmUrlText').value = ''; bundleMm = false; }
+function mount(status, src) {
+  // A bundle's second-pass URL (src.bundleMm) belongs to that index: set it on mount and,
+  // unless the user has since edited it, clear it when another index replaces the bundle.
+  if (lastMount?.bundleMm && $('mmUrlText').value === lastMount.bundleMm && !src.bundleMm) { document.querySelector('input[name=mm][value=none]').click(); $('mmUrlText').value = ''; }
+  if (src.bundleMm) { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = src.bundleMm; }
   indexReady = false; updateRun(); setIdxStatus(status);
   lastMount = { type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), ...src };
   worker.postMessage(lastMount);
@@ -144,7 +145,7 @@ function mount(status, src, fromBundle = false) {
 const idxDefault = $('idxStatus').textContent;
 $('idx').addEventListener('change', (e) => {
   if (e.target.files.length) return mountLocal([...e.target.files]);
-  if (radio('src') !== 'local' || lastMount?.source !== 'local') return; // a URL index stays mounted
+  if (lastMount?.source !== 'local') return; // only the mounted index is affected by clearing its picker
   indexReady = false; lastMount = null; updateRun(); setIdxStatus(idxDefault); // cleared
 });
 $('idxLoad').addEventListener('click', () => { if ($('idxUrl').value.trim()) mountUrl($('idxUrl').value.trim()); });
@@ -172,8 +173,8 @@ function mmWorkerCount() { const n = parseInt(qs.get('mmWorkers'), 10); return n
 async function startRun() {
   let mm;
   try { mm = await mmConfig(); } catch (e) { $('runStatus').textContent = 'Error: ' + e.message; $('runStatus').classList.add('err'); window.__error = e.message; return; }
-  running = true; updateRun();
-  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0; funnel.start();
+  setRunning(true);
+  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0;
   $('sAffectedLabel').textContent = radio('mode') === 'classify' ? 'Hits reported' : 'Removed (hit the index)';
   $('runStatus').textContent = 'Running…'; $('runStatus').classList.remove('err');
   worker.postMessage({ type: 'run', mode: radio('mode'), r1: r1(), r2: r2(), threshold: parseFloat($('thr').value) || 0.1,
@@ -230,8 +231,8 @@ const funnel = (() => {
 async function cancelRun() {
   if (!running) return;
   worker.terminate(); spawnWorker();
-  running = false; indexReady = false; updateRun();
-  $('bar').hidden = true; $('stats').hidden = true; $('downloads').innerHTML = ''; funnel.stop();
+  indexReady = false; setRunning(false);
+  $('bar').hidden = true; $('stats').hidden = true; $('downloads').innerHTML = '';
   $('runStatus').textContent = 'Cancelled.'; window.__cancelled = true;
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry('rype-out', { recursive: true }); } catch {} // partial outputs
   if (lastMount) { setIdxStatus('Reloading index…'); worker.postMessage(lastMount); }
@@ -250,15 +251,15 @@ function onWorkerMessage(e) {
     indexReady = true; updateRun();
     setIdxStatus(`Index loaded (${d.source}): k=${d.k}, w=${d.w}, ${fmt(d.buckets)} bucket(s), ${d.shards} shard(s), ${fmtBytes(d.shardBytes)}; ${d.workers} classifier worker(s).`);
   } else if (d.type === 'progress') {
-    showStats(d); if (d.stage) $('runStatus').textContent = `Running: ${d.stage}…`; if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+    window.__progress = d; showStats(d); if (d.stage) $('runStatus').textContent = `Running: ${d.stage}…`; if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
   } else if (d.type === 'done') {
-    running = false; updateRun(); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.'; funnel.stop();
+    setRunning(false); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
     window.__files = d.files; window.__phases = d.phases;
   } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
   } else if (d.type === 'error') {
-    running = false; updateRun(); funnel.stop();
+    setRunning(false);
     const el = indexReady ? $('runStatus') : $('idxStatus');
     el.textContent = 'Error: ' + d.msg; el.classList.add('err'); window.__error = d.msg;
   } else if (d.type === 'log') { console.log('[rype]', d.msg); (window.__log ||= []).push(d.msg); }
