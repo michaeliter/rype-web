@@ -34,7 +34,7 @@
   .err { color:var(--bad); }
   progress { width:100%; height:8px; appearance:none; -webkit-appearance:none; border:0; background:var(--line); border-radius:999px; overflow:hidden; }
   progress::-webkit-progress-bar { background:var(--line); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
-  #funnel { display:block; margin:10px auto 4px; width:min(100%, 360px); height:auto; }
+  #funnel:not([hidden]) { display:block; margin:10px auto 4px; width:min(100%, 360px); height:auto; }
   table { border-collapse:collapse; margin-top:8px; }
   td { padding:2px 14px 2px 0; }
   td:first-child { color:var(--muted); }
@@ -129,12 +129,14 @@ async function mountUrl(base) {
   let bundle = null;
   try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
   if (bundle && bundle.rype) {
-    if (bundle.minimap2) { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = new URL(bundle.minimap2, base).href; }
+    if (bundle.minimap2) { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = new URL(bundle.minimap2, base).href; bundleMm = true; }
     base = new URL(bundle.rype, base).href;
   }
-  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 });
+  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 }, !!bundle);
 }
-function mount(status, src) {
+let bundleMm = false; // the second-pass URL came from a bundle; it must not outlive that index
+function mount(status, src, fromBundle = false) {
+  if (bundleMm && !fromBundle) { document.querySelector('input[name=mm][value=none]').click(); $('mmUrlText').value = ''; bundleMm = false; }
   indexReady = false; updateRun(); setIdxStatus(status);
   lastMount = { type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), ...src };
   worker.postMessage(lastMount);
@@ -142,6 +144,7 @@ function mount(status, src) {
 const idxDefault = $('idxStatus').textContent;
 $('idx').addEventListener('change', (e) => {
   if (e.target.files.length) return mountLocal([...e.target.files]);
+  if (radio('src') !== 'local' || lastMount?.source !== 'local') return; // a URL index stays mounted
   indexReady = false; lastMount = null; updateRun(); setIdxStatus(idxDefault); // cleared
 });
 $('idxLoad').addEventListener('click', () => { if ($('idxUrl').value.trim()) mountUrl($('idxUrl').value.trim()); });
@@ -185,22 +188,23 @@ const funnel = (() => {
   const cv = $('funnel'), ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
   const mouthY = 44, neckY = 128, spoutY = 150, mouthHalf = 120, neckHalf = 18, cx = W / 2;
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  let col = {}; // theme colours, resolved once per start()
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let items = [], raf = 0, last = 0;
   const halfAt = (y) => y < mouthY ? mouthHalf : y > neckY ? neckHalf : mouthHalf - (mouthHalf - neckHalf) * (y - mouthY) / (neckY - mouthY);
   const banana = (x, y, rot, ripe) => {
     ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
     ctx.beginPath(); ctx.moveTo(-15, -4); ctx.quadraticCurveTo(0, 20, 15, -4); ctx.quadraticCurveTo(0, 4, -15, -4); ctx.closePath();
-    ctx.fillStyle = ripe ? css('--ripe') : css('--leaf'); ctx.fill();
-    ctx.strokeStyle = css('--brown'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-15, -4); ctx.lineTo(-18, -7); ctx.stroke();
-    if (ripe) { ctx.fillStyle = css('--brown'); for (const [sx, sy] of [[-7, 2], [-1, 6], [6, 3]]) { ctx.beginPath(); ctx.arc(sx, sy, 1.6, 0, 7); ctx.fill(); } }
+    ctx.fillStyle = ripe ? col.ripe : col.leaf; ctx.fill();
+    ctx.strokeStyle = col.brown; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-15, -4); ctx.lineTo(-18, -7); ctx.stroke();
+    if (ripe) { ctx.fillStyle = col.brown; for (const [sx, sy] of [[-7, 2], [-1, 6], [6, 3]]) { ctx.beginPath(); ctx.arc(sx, sy, 1.6, 0, 7); ctx.fill(); } }
     ctx.restore();
   };
   const draw = () => {
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = css('--line'); ctx.beginPath();
+    ctx.fillStyle = col.line; ctx.beginPath();
     ctx.moveTo(cx - mouthHalf, mouthY); ctx.lineTo(cx + mouthHalf, mouthY); ctx.lineTo(cx + neckHalf, neckY); ctx.lineTo(cx + neckHalf, spoutY); ctx.lineTo(cx - neckHalf, spoutY); ctx.lineTo(cx - neckHalf, neckY); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = css('--muted'); ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = col.muted; ctx.lineWidth = 2; ctx.stroke();
     for (const b of items) banana(b.x, b.y, b.rot, b.y > spoutY);
   };
   const step = (t) => {
@@ -215,7 +219,7 @@ const funnel = (() => {
     draw(); raf = requestAnimationFrame(step);
   };
   return {
-    start() { cv.hidden = false; items = []; last = 0; cancelAnimationFrame(raf);
+    start() { cv.hidden = false; items = []; last = 0; cancelAnimationFrame(raf); col = Object.fromEntries(['ripe', 'leaf', 'brown', 'line', 'muted'].map((k) => [k, css('--' + k)]));
       if (still) { items = [{ x: cx - 60, y: 16, rot: 0.3 }, { x: cx + 40, y: 24, rot: -0.4 }, { x: cx, y: spoutY + 40, rot: 0.2 }]; draw(); }
       else raf = requestAnimationFrame(step); },
     stop() { cancelAnimationFrame(raf); raf = 0; cv.hidden = true; },

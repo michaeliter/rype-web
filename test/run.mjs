@@ -53,8 +53,10 @@ try {
       logs.push('index status after upload: ' + idxStatus);
     }
     if (c.cancel) { // cancel mid-run, then start again: the rerun must produce the full, correct result
-      const want = c.cancel === true ? 'Running' : c.cancel; // true: any running state; string: a stage, e.g. "minimap2"
-      await page.waitForFunction((w) => document.getElementById('runStatus').textContent.includes(w), { timeout: 600000 }, want);
+      // true: after the first progress message (reads counted), so batches are really in flight;
+      // string: once that stage is shown, e.g. "minimap2". 'Running…' alone is set before the run message is even posted.
+      if (c.cancel === true) await page.waitForFunction(() => document.getElementById('sTotal').textContent !== '0', { timeout: 600000 });
+      else await page.waitForFunction((w) => document.getElementById('runStatus').textContent.includes(w), { timeout: 600000 }, c.cancel);
       const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); return { early, status: document.getElementById('runStatus').textContent, cancelHidden: document.getElementById('cancel').hidden, runDisabled: document.getElementById('run').disabled }; });
       if (st.early) logs.push('cancel: run already finished before cancel');
       if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));

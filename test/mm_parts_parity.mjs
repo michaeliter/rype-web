@@ -24,6 +24,7 @@ const createMmFilter = require(path.join(root, 'web/mm_filter.js'));
 const fd = fs.openSync(mmi, 'r');
 const readIds = (p) => fs.readFileSync(p, 'utf8').split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));
 const ids = readIds(r1Path);
+const fq1 = fs.readFileSync(r1Path), fq2 = fs.readFileSync(r2Path);
 const only = process.env.PARTS ? new Set(process.env.PARTS.split(',').map(Number)) : null; // PARTS=1,2 to run a subset
 let failed = 0, shared = null;
 for (let i = 0; i < parts.length; i++) {
@@ -35,8 +36,8 @@ for (let i = 0; i < parts.length; i++) {
   const M = shared ??= await createMmFilter({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
   if (!process.env.PARITY_SHARED) shared = null;
   patchWorkerfsRead(M);
-  const put = (p) => { const b = fs.readFileSync(p); const ptr = M._malloc(b.length); M.HEAPU8.set(b, ptr); return [ptr, b.length]; };
-  const [p1, l1] = put(r1Path), [p2, l2] = put(r2Path);
+  const put = (b) => { const ptr = M._malloc(b.length); if (!ptr) throw new Error('malloc failed'); M.HEAPU8.set(b, ptr); return ptr; };
+  const p1 = put(fq1), p2 = put(fq2), l1 = fq1.length, l2 = fq2.length;
   const src = new ChunkedSource(size, (a, b) => { const buf = new Uint8Array(b - a); fs.readSync(fd, buf, 0, b - a, offset + a); return buf; }, 8 << 20, 4, 0);
   try { M.FS.unmount('/index'); } catch {} // (fails on a fresh instance: nothing mounted yet)
   try { M.FS.mkdir('/index'); } catch {}
@@ -48,7 +49,7 @@ for (let i = 0; i < parts.length; i++) {
   t0 = performance.now();
   if (M.ccall('mm_part_hits', 'number', Array(7).fill('number'), [p1, l1, p2, l2, outs, outs + 4, outs + 8]) !== 0) throw new Error(M.ccall('mm_last_error', 'string', [], []));
   const hp = M.HEAPU32[outs >>> 2], n = M.HEAPU32[(outs + 4) >>> 2];
-  const hits = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs);
+  const hits = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs); M._free(p1); M._free(p2);
   const tMap = (performance.now() - t0) / 1000;
   const got = new Set(ids.filter((_, j) => hits[j]));
   const truth = new Set(fs.readFileSync(path.join(root, `testdata/sr_parts_truth/part${i}.txt`), 'utf8').split('\n').filter(Boolean));
