@@ -1,0 +1,80 @@
+ Downloading crates ...
+  Downloaded web-time v1.1.0
+   Compiling web-time v1.1.0
+   Compiling rammap-core v1.1.3 (/Users/michaeliter/rype-work/rammap-src/rammap/rammap-core)
+   Compiling rammap-shim v0.1.0 (/Users/michaeliter/rype-work/rype-mask-web/rammap-shim)
+warning: creating a mutable reference to mutable static
+  --> src/lib.rs:18:45
+   |
+18 |     unsafe { LAST_ERROR = msg.into_bytes(); LAST_ERROR.push(0); }
+   |                                             ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+   |
+   = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+   = note: `#[warn(static_mut_refs)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:23:17
+   |
+23 |     unsafe { if LAST_ERROR.is_empty() { LAST_ERROR.push(0); } LAST_ERROR.as_ptr() as *const c_char }
+   |                 ^^^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a mutable reference to mutable static
+  --> src/lib.rs:23:41
+   |
+23 |     unsafe { if LAST_ERROR.is_empty() { LAST_ERROR.push(0); } LAST_ERROR.as_ptr() as *const c_char }
+   |                                         ^^^^^^^^^^^^^^^^^^ mutable reference to mutable static
+   |
+   = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:23:63
+   |
+23 |     unsafe { if LAST_ERROR.is_empty() { LAST_ERROR.push(0); } LAST_ERROR.as_ptr() as *const c_char }
+   |                                                               ^^^^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:39:51
+   |
+39 | pub unsafe extern "C" fn rm_part_n_seq() -> u32 { ALIGNER.as_ref().map_or(0, |a| a.index().seqs.len() as u32) }
+   |                                                   ^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:41:47
+   |
+41 | pub unsafe extern "C" fn rm_part_k() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().kmer_size as i32) }
+   |                                               ^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:43:47
+   |
+43 | pub unsafe extern "C" fn rm_part_w() -> i32 { ALIGNER.as_ref().map_or(0, |a| a.index().window_size as i32) }
+   |                                               ^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: creating a shared reference to mutable static
+  --> src/lib.rs:78:20
+   |
+78 |     let Some(al) = ALIGNER.as_ref() else { set_error("no index part loaded".into()); return -1; };
+   |                    ^^^^^^^^^^^^^^^^ shared reference to mutable static
+   |
+   = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+
+warning: `rammap-shim` (lib) generated 8 warnings
+    Finished `release` profile [optimized] target(s) in 13.65s

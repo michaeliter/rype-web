@@ -140,6 +140,35 @@ in any part. Pieces:
   chr22 pairs + 9000 WoL pairs): identical hit set per part (`test_mm.mjs`) and the
   two-pass browser output equals the complement of the native rype + minimap2 truth.
 
+## rammap evaluation (2026-10-13, experimental, not wired into the page)
+
+`rammap-shim/` + `build_rm.sh` build github.com/jwanglab/rammap (Rust, c63fbb2) as a
+second wasm module, `web/rm_filter.{js,wasm}`, with the same C ABI as the minimap2 shim
+(`rm_part_load`, `rm_part_hits`, ...). rammap-core needs one patch to build for
+wasm32-unknown-emscripten (`rammap-emscripten.patch`: gate the wasm-bindgen glue on
+wasm32-unknown-unknown); the shim expects the patched checkout at `../rammap-src/rammap`.
+`MOD=rm node test_mm.mjs ...` drives it. Findings, part 4 of chm13_sr_parts.mmi (1.06 GB),
+200k HG00133 pairs, Node, single thread, sequential runs:
+
+| | map time | wasm heap after load | hits vs minimap2 CLI |
+|---|---|---|---|
+| minimap2 fork shim (`mm_filter`) | 34.6 s | 1.47 GiB | identical (84,349) |
+| rammap shim via the CLI pipeline path | 43.0 s | 2.42 GiB | identical (84,349) |
+
+Native rammap 1.1.3 also produced byte-identical PAF (columns 1-12) to minimap2 2.30 on
+sr_mix and on the 2,947 cascade survivors against the 5-part index. The blocker: rammap's
+.mmi loader keeps the raw bucket data alive while converting it into its own hash tables
+and pushes singleton positions into a flat array, so a 2.1 GB part needs ~4.8 GB and aborts
+under the wasm32 4 GB cap (`memory allocation of 1073741824 bytes failed`). Parts of
+~1 GB load fine. Using rammap in the browser therefore needs either a ~10-part index
+(`-I 300M`) or a streaming loader in rammap. The rammap `Aligner::map_pair` API must not
+be used for parity: it enables CIGAR output, which switches pairing mode and dropped 40 of
+84,349 pairs; the shim calls `align_and_format_pair` the way the CLI does.
+
+Side finding fixed along the way: the minimap2 shim did not reverse-complement R2 before
+mapping as the CLI does for the `sr` preset (pe_ori = FR), which lost 3 weakly paired
+reads of 14,000 on part 1. Fixed in `src/mm.c`; parts 1 and 4 now match the CLI exactly.
+
 ## Automated headless tests
 
 ```

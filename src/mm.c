@@ -61,9 +61,25 @@ int mm_part_hits(const char *buf1, size_t len1, const char *buf2, size_t len2,
 	if (!h) { snprintf(g_err, sizeof g_err, "out of memory"); free(p1.recs); free(p2.recs); return -1; }
 	size_t nh = 0;
 	int n_segs = buf2 ? 2 : 1;
+	// The CLI reverse-complements a mate before mapping when the preset's pair
+	// orientation says so (sr: pe_ori = FR, so R2 is flipped; see worker_for in
+	// map.c). Pairing geometry depends on it, so do the same here.
+	char *rc = NULL; size_t rc_cap = 0;
 	for (size_t i = 0; i < p1.n; i++) {
 		const char *seqs[2] = { p1.recs[i].seq, buf2 ? p2.recs[i].seq : NULL };
 		int qlens[2] = { (int)p1.recs[i].seq_len, buf2 ? (int)p2.recs[i].seq_len : 0 };
+		if (n_segs == 2) {
+			int flip = (g_mopt.pe_ori & 1) ? 1 : (g_mopt.pe_ori >> 1 & 1) ? 0 : -1;
+			if (flip >= 0) {
+				size_t L = (size_t)qlens[flip];
+				if (L > rc_cap) { rc_cap = L; rc = realloc(rc, rc_cap ? rc_cap : 1); }
+				for (size_t j = 0; j < L; j++) {
+					char c = seqs[flip][L - 1 - j];
+					rc[j] = c == 'A' ? 'T' : c == 'C' ? 'G' : c == 'G' ? 'C' : c == 'T' ? 'A' : c == 'a' ? 't' : c == 'c' ? 'g' : c == 'g' ? 'c' : c == 't' ? 'a' : c;
+				}
+				seqs[flip] = rc;
+			}
+		}
 		int n_regs[2] = { 0, 0 };
 		mm_reg1_t *regs[2] = { NULL, NULL };
 		// minimap2 hashes the query name (first mate's, as the CLI passes it) into its
@@ -76,6 +92,6 @@ int mm_part_hits(const char *buf1, size_t len1, const char *buf2, size_t len2,
 		if (hit) { h[i] = 1; nh++; }
 	}
 	*hits = h; *n_records = p1.n; *n_hits = nh;
-	free(p1.recs); free(p2.recs);
+	free(rc); free(p1.recs); free(p2.recs);
 	return 0;
 }

@@ -1,0 +1,19 @@
+[package]
+name = "rammap-shim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# rammap at c63fbb2 (2026-10-08) plus one patch: the wasm-bindgen glue is gated on
+# wasm32-unknown-unknown so the emscripten target builds as a plain static library.
+rammap = { package = "rammap-core", path = "../../rammap-src/rammap/rammap-core", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
