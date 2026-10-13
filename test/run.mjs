@@ -79,7 +79,7 @@ try {
     if (r.error) problems.push(`error: ${r.error}`);
     else {
       const e = c.expect || {};
-      for (const k of ['total', 'affected', 'rypeRemoved', 'mmRemoved']) if (e[k] != null && r[k] !== e[k]) problems.push(`${k}: got ${r[k]}, want ${e[k]}`);
+      for (const k of ['total', 'affected', 'rypeRemoved', 'mmRemoved', 'readType', 'threshold']) if (e[k] != null && r[k] !== e[k]) problems.push(`${k}: got ${r[k]}, want ${e[k]}`);
       if (e.files) e.files.forEach((ef, i) => {
         const f = r.files[i];
         if (!f) return problems.push(`file ${i} missing`);

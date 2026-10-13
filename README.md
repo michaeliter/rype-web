@@ -1,9 +1,22 @@
 # rype-mask-web — RYpe in the browser (prototype)
 
-Host read filtering (single- or paired-end FASTQ in, filtered FASTQ out) and
-multi-bucket classification (rype's native TSV out) against a RYpe index,
-entirely in the browser: rype compiled to wasm32-unknown-emscripten, a C shim
-(`src/mask.c`) that parses FASTQ and calls `rype_classify`, and a Web Worker.
+Human host read filtering (single- or paired-end FASTQ in, filtered FASTQ out)
+against a RYpe index, entirely in the browser: rype compiled to
+wasm32-unknown-emscripten, a C shim (`src/mask.c`) that parses FASTQ and calls
+`rype_classify`, and a Web Worker. Short reads get a second pass through minimap2
+(below). Multi-bucket classification (rype's native TSV out) still works in the
+workers but has no control on the page; the harness reaches it with `?mode=classify`.
+
+The page is a dedicated host filter:
+- The index loads on page load from `DEFAULT_INDEX_URL` in `web/index.html` (a bundle
+  directory, see Run); "Use a local index instead" reveals pickers for a `.ryxdi` folder
+  and, for short reads, the `.mmi` + `.parts.json`.
+- Picking R1 reads its first record (gz included): a first read over 300 bp means long
+  reads (rype only, containment threshold 0.05), otherwise short reads (rype at
+  threshold 0, i.e. any shared minimizer, then minimap2). The detection is shown with the
+  choice pre-selected so it can be overridden; the Filter card states the resulting plan.
+- "Set the containment threshold" reveals the threshold field; unchecked, the per-type
+  default applies.
 
 Index sources (both read lazily by byte range, nothing copied into memory):
 - a local `.ryxdi` folder picked by the user (WORKERFS over File handles)
@@ -33,23 +46,31 @@ so output size is not bounded by memory; optional gzip.
 - `rype-wasm-fixes.patch`  the rype changes (also on branch michaeliter/wasm32-support)
 
 ## Run
-    node serve.mjs 8765 .          # from this directory
+    node serve.mjs 8765 .                        # the page, from this directory
+    node serve.mjs 8766 ~/rype-work/staging      # the human bundle, until it is on the ftp server
     open http://127.0.0.1:8765/web/index.html
-The Index URL field also accepts a bundle directory: one that holds `index.json` with
+The default index is a bundle directory: one that holds `index.json` with
 `{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }` next to both indexes (plus the
-`.parts.json` beside the `.mmi`). One URL then configures the rype index and the second
-pass together. The human bundle is staged, hard-linked, at
-`~/rype-work/staging/human-host-filter/` (10 GB, README.txt inside lists the Apache CORS
-headers the host needs); `testdata/bundle_wol_chm13/` is a small symlinked one for tests.
+`.parts.json` beside the `.mmi`), so one URL configures the rype index and the second
+pass together. `DEFAULT_INDEX_URL` in `web/index.html` is
+`http://127.0.0.1:8766/human-host-filter/` for now; `?index=<url>` overrides it. The
+human bundle is staged, hard-linked, at `~/rype-work/staging/human-host-filter/`
+(10 GB, README.txt inside lists the Apache CORS headers the host needs);
+`testdata/bundle_wol_chm13/` is a small symlinked one for tests.
 Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
 single-end file next). Cancel (shown while a job runs) terminates the coordinator worker
 and with it the classifier/minimap2 workers, discards partial outputs, and reloads the
 index in a fresh worker; Run is enabled again once the index is back.
 Dev smoke tests (same worker paths as the pickers, no file dialogs):
-    ?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&batchMB=0.5
-    ?demo=1&idx=wol2_12&src=local&paired=1&mode=filter&gz=1|multi&gzout=1&batchMB=0.3
-    ?demo=1&idx=chr1_slice&src=url&mode=filter
-    ?demo=1&idx=human&src=url&mode=filter&chunkMB=32   # needs testdata/human.ryxdi symlink
+    ?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&thr=0.1&batchMB=0.5
+    ?demo=1&idx=wol2_12&src=local&paired=1&gz=1|multi&gzout=1&thr=0.1&batchMB=0.3
+    ?demo=1&idx=chr1_slice&src=url
+    ?demo=1&idx=human&src=url&chunkMB=32               # needs testdata/human.ryxdi symlink
+    ?demo=1&idx=human&src=url&r1=long200.fq.gz          # long reads detected, threshold 0.05
+    ?demo=1&idx=wol2_12&bundle=bundle_wol_chm13&src=url&r1=long200.fq.gz&rt=short  # override
+`thr=` sets the threshold (the harness pins 0.1 everywhere its truth files were made at
+0.1); without it the page's per-type default applies. `rt=short|long` overrides the
+detection.
 
 ## Verified (2026-10-08, Chrome + Node)
 - paired + single classify TSV identical to native `rype classify run` (wol2_12)
@@ -120,9 +141,11 @@ One 640 MB batch, same slice, sequential runs:
 
 ## Short-read second pass (minimap2 `sr` vs T2T)
 
-For short paired reads the host filter runs a second pass after rype: minimap2 with
-the `sr` preset against the T2T (CHM13) genome. A pair is dropped if either mate maps
-in any part. Pieces:
+For short reads (detected or chosen, paired or single) the host filter runs a second pass
+after rype: minimap2 with the `sr` preset against the T2T (CHM13) genome. A pair is
+dropped if either mate maps in any part. The pass needs the bundle's `.mmi` (URL source)
+or the picked `.mmi` + `.parts.json` (local source); without one, short reads are
+filtered by rype alone and the Filter card says so. Pieces:
 - `src/mm.c` + `third_party/minimap2` (copied from the miint submodule, built by
   `build_mm2.sh` with the same SSE2-via-SIMD128 flags miint uses) -> `web/mm_filter.wasm`.
 - `web/mm_worker.js`: one worker per index part; the part is mounted as its own file
@@ -178,7 +201,8 @@ npm test             # or: node test/run.mjs <name-filter>
 `test/run.mjs` starts `serve.mjs` on a random port, drives `web/index.html?demo=...` in
 headless Chrome, waits for `window.__result`, and checks counts and SHA-256 of the
 outputs against `test/cases.json` (truth files under `testdata/`, all produced by the
-native tools). Cases needing the big local indexes (`testdata/human.ryxdi`,
+native tools); `readType` and `threshold` expectations check the detection and the
+per-type defaults (`testdata/long200.fq.gz`: the first 200 HG00133 reads). Cases needing the big local indexes (`testdata/human.ryxdi`,
 `chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
 `scratch/test-out/<case>/`. `npm test` then runs `test/mm_parts_parity.mjs`: every part of
 `testdata/chm13_sr_parts.mmi` is mounted by byte range as `mm_worker.js` does and the
