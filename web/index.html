@@ -53,7 +53,7 @@
     <label class="inline"><input type="radio" name="src" value="local" checked> Local folder</label>
     <label class="inline"><input type="radio" name="src" value="url"> URL (read by byte range, nothing stored)</label>
     <div id="srcLocal" class="file"><input id="idx" type="file" webkitdirectory directory multiple><button class="secondary clear" data-clear="idx" title="Clear index">×</button></div>
-    <div id="srcUrl" hidden class="row" style="margin-top:4px"><div style="flex:4 1 280px"><input id="idxUrl" type="text" placeholder="https://host/path/index.ryxdi/"></div><div style="flex:0 0 auto"><button id="idxLoad" class="secondary">Load</button></div></div>
+    <div id="srcUrl" hidden class="row" style="margin-top:4px"><div style="flex:4 1 280px"><input id="idxUrl" type="text" placeholder="https://host/path/index.ryxdi/ or a bundle directory with index.json"></div><div style="flex:0 0 auto"><button id="idxLoad" class="secondary">Load</button></div></div>
     <div id="idxStatus" class="status">Pick a <code>.ryxdi</code> folder or enter its URL. Shards are read on demand, never loaded whole.</div>
   </div>
 
@@ -122,7 +122,18 @@ function mountLocal(files) {
   const paths = files.map((f) => /^shard\.\d+\.parquet$/.test(f.name) ? 'inverted/' + f.name : f.name);
   mount('Opening index…', { source: 'local', files, paths });
 }
-function mountUrl(base) { mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 }); }
+// A bundle directory holds index.json ({rype: "<dir>/", minimap2: "<file>.mmi"}) next to both
+// indexes, so one URL configures the rype index and the second pass together.
+async function mountUrl(base) {
+  if (!base.endsWith('/')) base += '/';
+  let bundle = null;
+  try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
+  if (bundle && bundle.rype) {
+    if (bundle.minimap2) { document.querySelector('input[name=mm][value=url]').click(); $('mmUrlText').value = new URL(bundle.minimap2, base).href; }
+    base = new URL(bundle.rype, base).href;
+  }
+  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024 });
+}
 function mount(status, src) {
   indexReady = false; updateRun(); setIdxStatus(status);
   lastMount = { type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), ...src };
@@ -273,7 +284,7 @@ function batchBytes() {
   const mb = parseFloat(qs.get('batchMB')) || (small ? 128 : workerCount() > 1 ? 256 : 512);
   return Math.min(mb, 700) * 1024 * 1024;
 }
-// mode=filter|classify, gz=1|multi (gz input), r1=/r2=<testdata file> (override stems), mm=url (second pass,
+// mode=filter|classify, gz=1|multi (gz input), r1=/r2=<testdata file> (override stems), bundle=<testdata dir with index.json>, mm=url (second pass,
 // mmi=<testdata .mmi>, mmWorkers=N), gzout=1, batchMB=N, thr=X, workers=N, simulateFail=<seq>.
 window.__start = () => { const w = setInterval(() => { if (window.__error) clearInterval(w); else if (indexReady) { clearInterval(w); updateRun(); startRun(); } }, 50); };
 if (qs.get('demo') === 'manual') { // harness sets the file inputs itself (real disk files), then calls __start()
@@ -293,7 +304,7 @@ if (qs.get('demo') === 'manual') { // harness sets the file inputs itself (real 
     const get = async (rel, name) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`demo fetch ${rel}: ${r.status}`); return new File([await r.blob()], name || rel.split('/').pop()); };
     const src = qs.get('src') === 'url' ? 'url' : 'local';
     document.querySelector(`input[name=src][value=${src}]`).click();
-    if (src === 'url') { $('idxUrl').value = base + idx + '.ryxdi/'; mountUrl($('idxUrl').value); }
+    if (src === 'url') { $('idxUrl').value = base + (qs.get('bundle') ? qs.get('bundle') + '/' : idx + '.ryxdi/'); mountUrl($('idxUrl').value); }
     else {
       const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
       const files = await Promise.all(rels.map((r) => get(`${idx}.ryxdi/${r}`)));

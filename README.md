@@ -35,6 +35,12 @@ so output size is not bounded by memory; optional gzip.
 ## Run
     node serve.mjs 8765 .          # from this directory
     open http://127.0.0.1:8765/web/index.html
+The Index URL field also accepts a bundle directory: one that holds `index.json` with
+`{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }` next to both indexes (plus the
+`.parts.json` beside the `.mmi`). One URL then configures the rype index and the second
+pass together. The human bundle is staged, hard-linked, at
+`~/rype-work/staging/human-host-filter/` (10 GB, README.txt inside lists the Apache CORS
+headers the host needs); `testdata/bundle_wol_chm13/` is a small symlinked one for tests.
 Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
 single-end file next). Cancel (shown while a job runs) terminates the coordinator worker
 and with it the classifier/minimap2 workers, discards partial outputs, and reloads the
