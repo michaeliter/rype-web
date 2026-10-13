@@ -33,7 +33,7 @@ function hits({ seq, b1, b2 }) {
   const rc = M.ccall('mm_part_hits', 'number', Array(7).fill('number'), [p1, b1.byteLength, p2, b2 ? b2.byteLength : 0, outs, outs + 4, outs + 8]);
   M._free(p1); if (p2) M._free(p2);
   if (rc !== 0) { M._free(outs); throw new Error(lastError()); }
-  const hp = M.HEAPU32[outs >> 2], n = M.HEAPU32[(outs + 4) >> 2], nh = M.HEAPU32[(outs + 8) >> 2];
+  const hp = M.HEAPU32[outs >>> 2], n = M.HEAPU32[(outs + 4) >>> 2], nh = M.HEAPU32[(outs + 8) >>> 2];
   const h = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs);
   post('result', { seq, hits: h, n, nh, ms: performance.now() - t, bytesFetched: FsStats.bytesFetched, heapBytes: M.HEAPU8.length }, [h.buffer]);
 }

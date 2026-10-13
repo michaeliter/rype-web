@@ -19,7 +19,7 @@ const [p1, l1] = put(r1Path), [p2, l2] = put(r2Path);
 const outs = M._malloc(12);
 t0 = performance.now();
 if (M.ccall(P + 'hits', 'number', Array(7).fill('number'), [p1, l1, p2, l2, outs, outs + 4, outs + 8]) !== 0) throw new Error(M.ccall(P === 'rm_part_' ? 'rm_last_error' : 'mm_last_error', 'string', [], []));
-const hp = M.HEAPU32[outs >> 2], n = M.HEAPU32[(outs + 4) >> 2], nh = M.HEAPU32[(outs + 8) >> 2];
+const hp = M.HEAPU32[outs >>> 2], n = M.HEAPU32[(outs + 4) >>> 2], nh = M.HEAPU32[(outs + 8) >>> 2];
 const hits = M.HEAPU8.slice(hp, hp + n);
 console.log(`${n} records, ${nh} with a mapping, ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 const ids = fs.readFileSync(r1Path, 'utf8').split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));

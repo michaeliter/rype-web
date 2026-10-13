@@ -25,17 +25,20 @@ const fd = fs.openSync(mmi, 'r');
 const readIds = (p) => fs.readFileSync(p, 'utf8').split('\n').filter((l, i) => i % 4 === 0 && l).map((l) => l.slice(1).split(/\s/)[0].replace(/\/[12]$/, ''));
 const ids = readIds(r1Path);
 const only = process.env.PARTS ? new Set(process.env.PARTS.split(',').map(Number)) : null; // PARTS=1,2 to run a subset
-let failed = 0;
+let failed = 0, shared = null;
 for (let i = 0; i < parts.length; i++) {
   if (only && !only.has(i)) continue;
   const { offset, size } = parts[i];
-  // A fresh module per part, as each mm_worker.js holds exactly one part.
-  const M = await createMmFilter({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
+  // A fresh module per part, as each mm_worker.js holds exactly one part. PARITY_SHARED=1
+  // reloads every part into ONE instance instead: after a ~2 GB part the next
+  // allocations land above 2 GiB, which caught pointers being indexed with a signed shift.
+  const M = shared ??= await createMmFilter({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
+  if (!process.env.PARITY_SHARED) shared = null;
   patchWorkerfsRead(M);
   const put = (p) => { const b = fs.readFileSync(p); const ptr = M._malloc(b.length); M.HEAPU8.set(b, ptr); return [ptr, b.length]; };
   const [p1, l1] = put(r1Path), [p2, l2] = put(r2Path);
   const src = new ChunkedSource(size, (a, b) => { const buf = new Uint8Array(b - a); fs.readSync(fd, buf, 0, b - a, offset + a); return buf; }, 8 << 20, 4, 0);
-  try { M.FS.unmount('/index'); } catch {}
+  try { M.FS.unmount('/index'); } catch {} // (fails on a fresh instance: nothing mounted yet)
   try { M.FS.mkdir('/index'); } catch {}
   M.FS.mount(M.WORKERFS, { blobs: [{ name: 'part.mmi', data: src }] }, '/index');
   let t0 = performance.now();
@@ -44,7 +47,7 @@ for (let i = 0; i < parts.length; i++) {
   const outs = M._malloc(12);
   t0 = performance.now();
   if (M.ccall('mm_part_hits', 'number', Array(7).fill('number'), [p1, l1, p2, l2, outs, outs + 4, outs + 8]) !== 0) throw new Error(M.ccall('mm_last_error', 'string', [], []));
-  const hp = M.HEAPU32[outs >> 2], n = M.HEAPU32[(outs + 4) >> 2];
+  const hp = M.HEAPU32[outs >>> 2], n = M.HEAPU32[(outs + 4) >>> 2];
   const hits = M.HEAPU8.slice(hp, hp + n); M._mm_free(hp); M._free(outs);
   const tMap = (performance.now() - t0) / 1000;
   const got = new Set(ids.filter((_, j) => hits[j]));
@@ -53,5 +56,5 @@ for (let i = 0; i < parts.length; i++) {
   const ok = !missing.length && !extra.length; if (!ok) failed++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} part ${i} (${(size / 2 ** 30).toFixed(2)} GiB, ${M._mm_part_n_seq()} seqs): ${got.size} mapped pairs, truth ${truth.size}, missing ${missing.length}, extra ${extra.length}; load ${tLoad.toFixed(1)} s, map ${tMap.toFixed(1)} s` + (ok ? '' : ` ${JSON.stringify({ missing: missing.slice(0, 5), extra: extra.slice(0, 5) })}`));
 }
-const ran = only ? only.size : parts.length; console.log(`${ran - failed}/${ran} parts match native minimap2`);
+const ran = only ? only.size : parts.length; console.log(`${ran - failed}/${ran} parts match native minimap2${process.env.PARITY_SHARED ? ' (shared instance)' : ''}`);
 process.exit(failed ? 1 : 0);

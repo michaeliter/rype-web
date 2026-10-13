@@ -40,7 +40,7 @@ function gunzipStream() {
       const rc = M._gz_feed(gz, p, chunk.length, outs, outs + 4);
       M._free(p);
       if (rc !== 0) fail();
-      const op = M.HEAPU32[outs >> 2], ol = M.HEAPU32[(outs + 4) >> 2];
+      const op = M.HEAPU32[outs >>> 2], ol = M.HEAPU32[(outs + 4) >>> 2];
       if (ol) ctrl.enqueue(M.HEAPU8.slice(op, op + ol));
       M._free(op);
     },

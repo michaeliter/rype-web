@@ -15,7 +15,7 @@ console.log(`index loaded in ${(performance.now() - t0).toFixed(0)} ms; k=${M._m
 const put = (p) => { if (!p) return [0, 0]; const b = fs.readFileSync(p); const ptr = M._malloc(b.length); M.HEAPU8.set(b, ptr); return [ptr, b.length]; };
 const [in1, len1] = put(r1Path), [in2, len2] = put(r2Path);
 const outs = M._malloc(32); // up to 8 x u32 out-params
-const u32 = (i) => M.HEAPU32[(outs + 4 * i) >> 2];
+const u32 = (i) => M.HEAPU32[(outs + 4 * i) >>> 2];
 const take = (ptrIdx, lenIdx) => { const p = u32(ptrIdx), l = u32(lenIdx); const b = Buffer.from(M.HEAPU8.buffer, p, l).toString('binary'); M._mask_free(p); return Buffer.from(b, 'binary'); };
 const t1 = performance.now();
 let rc;

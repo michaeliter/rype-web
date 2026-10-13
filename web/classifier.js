@@ -48,7 +48,8 @@ async function mountIndex(msg) {
 }
 
 // ---------------------------------------------------------------- one batch
-const u32 = (p, i) => M.HEAPU32[(p + 4 * i) >> 2];
+// >>> not >>: a pointer above 2 GiB is negative under a signed shift and indexes nothing.
+const u32 = (p, i) => M.HEAPU32[(p + 4 * i) >>> 2];
 function takeOut(outs, ptrIdx, lenIdx) { const p = u32(outs, ptrIdx), l = u32(outs, lenIdx); const b = M.HEAPU8.slice(p, p + l); M._mask_free(p); return b; }
 
 function classify({ seq, mode, b1, b2, threshold }) {
