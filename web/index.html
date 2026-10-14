@@ -534,8 +534,8 @@ function demoOptions() {
 }
 function useLocalIndex() { $('useLocal').checked = true; $('srcLocal').hidden = false; $('localDetails').open = true; }
 renderPicks();
-if (qs.get('demo') === 'manual') {
-  demoOptions(); useLocalIndex(); unmount('Choose a .ryxdi folder.');
+if (qs.get('demo') === 'manual') { // uploads via the pickers; ?index= keeps the URL index (reads still uploaded)
+  demoOptions(); if (qs.get('index')) mountUrl(indexUrl); else { useLocalIndex(); unmount('Choose a .ryxdi folder.'); }
   $('idx').removeAttribute('webkitdirectory'); $('idx').removeAttribute('directory'); // automation cannot fill a directory picker
 } else if (qs.get('demo')) {
   (async () => {
