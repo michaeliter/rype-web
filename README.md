@@ -7,10 +7,17 @@ wasm32-unknown-emscripten, a C shim (`src/mask.c`) that parses FASTQ and calls
 (below). Multi-bucket classification (rype's native TSV out) still works in the
 workers but has no control on the page; the harness reaches it with `?mode=classify`.
 
-The page is a dedicated host filter:
+The page is a dedicated host filter, laid out as a stem of three fruit (Index, Reads,
+Ripen) that turn from green to yellow as each step is satisfied; while a job runs an SVG
+funnel (anime.js, vendored in `web/vendor/`) ripens green bananas into spotted yellow
+ones. Type: Fraunces for headings, Instrument Sans for everything else (Google Fonts, with
+system fallbacks). Index parameters, byte counts and per-phase timings are not shown; they
+go to the browser console as `[rype] ...` lines (also collected in `window.__log`).
 - The index loads on page load from `DEFAULT_INDEX_URL` in `web/index.html` (a bundle
   directory, see Run); "Use a local index instead" reveals pickers for a `.ryxdi` folder
   and, for short reads, the `.mmi` + `.parts.json`.
+- Reads are chosen with the R1/R2 buttons or dropped onto the zone (two files are assigned
+  R1/R2 by name order); each shows as a chip with a × to remove it.
 - Picking R1 reads its first record (gz included): a first read over 300 bp means long
   reads (rype only, containment threshold 0.05), otherwise short reads (rype at
   threshold 0, i.e. any shared minimizer, then minimap2). The detection is shown with the
@@ -49,7 +56,8 @@ so output size is not bounded by memory; optional gzip.
 
 ## Layout
 - `src/mask.c`        C shim: `mask_filter` (paired-aware) and `mask_classify` (TSV)
-- `web/index.html`    UI; `web/worker.js` worker; `web/rype_mask.{js,wasm}` built module
+- `web/index.html`    UI; `web/worker.js` worker; `web/rype_mask.{js,wasm}` built module;
+                      `web/vendor/anime.umd.min.js` (anime.js 4, from `npm install`, copied in)
 - `build.sh`          rebuilds librype.a (wasm) + the module
 - `serve.mjs`         dev server with Range + CORS support (python http.server lacks Range)
 - `test_node.mjs`     headless harness: `node test_node.mjs filter|classify <idx> <r1> [r2|-] <out> [thr]`

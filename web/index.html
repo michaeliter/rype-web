@@ -4,103 +4,167 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..700,0..100&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="vendor/anime.umd.min.js"></script>
 <style>
-  :root { --bg:#fbf7ee; --fg:#2a2416; --muted:#8a7f66; --card:#fffdf7; --line:#ebe3cf; --accent:#f2c14e; --accent-fg:#2a2416; --leaf:#5f9b3a; --ripe:#e9b43a; --brown:#6b4423; --mm:#c49a6c; --bad:#b4452f; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#1b1811; --fg:#f1eadb; --muted:#a79c82; --card:#242017; --line:#3a3326; --accent:#e9b43a; --accent-fg:#1b1811; --leaf:#7fbf55; --ripe:#f0c24a; --brown:#8a5a2e; --mm:#c9a071; --bad:#e07b5f; } }
-  body { margin:0; padding:28px 16px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; }
-  main { max-width:720px; margin:0 auto; }
-  h1 { font-size:1.6rem; margin:0; letter-spacing:-.01em; display:flex; align-items:center; gap:10px; }
-  h1 .mark { width:30px; height:30px; flex:none; }
-  .sub { color:var(--muted); margin:4px 0 24px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:14px; }
-  .card h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px; }
-  label { display:block; font-weight:600; margin-bottom:6px; }
-  label.inline { display:inline-flex; gap:6px; align-items:center; font-weight:500; margin:0 16px 8px 0; }
-  input[type=file], input[type=text] { width:100%; box-sizing:border-box; }
-  input[type=file] { color:var(--muted); font-size:.9rem; }
-  input[type=file]::file-selector-button { border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:999px; padding:5px 12px; margin-right:10px; cursor:pointer; }
-  input[type=text], input[type=number] { padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
-  input[type=number] { width:100%; box-sizing:border-box; }
-  input:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-top:10px; }
-  .row > div { flex:1 1 160px; }
-  button { padding:10px 22px; border:0; border-radius:999px; background:var(--accent); color:var(--accent-fg); font-weight:700; font-size:15px; cursor:pointer; }
-  button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); padding:6px 14px; font-size:14px; font-weight:600; }
-  button:disabled { opacity:.4; cursor:default; }
-  .file { display:flex; gap:6px; align-items:center; }
-  .file input[type=file] { flex:1; }
-  button.clear { padding:1px 9px; font-size:15px; line-height:1.3; color:var(--muted); }
-  .status { color:var(--muted); font-size:.92rem; margin-top:8px; min-height:1.3em; }
-  .err { color:var(--bad); }
-  progress { width:100%; height:8px; appearance:none; -webkit-appearance:none; border:0; background:var(--line); border-radius:999px; overflow:hidden; }
-  progress::-webkit-progress-bar { background:var(--line); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
-  #funnel:not([hidden]) { display:block; margin:10px auto 4px; width:min(100%, 360px); height:auto; }
-  #report { display:block; width:100%; height:auto; border-radius:10px; }
-  table { border-collapse:collapse; margin-top:8px; }
-  td { padding:2px 14px 2px 0; }
-  td:first-child { color:var(--muted); }
-  a.dl { display:block; margin-top:8px; font-weight:600; color:var(--brown); }
-  .note { color:var(--muted); font-size:.85rem; margin-top:14px; }
-  code { font-family:ui-monospace,Menlo,monospace; font-size:.9em; }
+  /* Ripening palette: unripe leaf -> ripe peel -> speckle. Paper has a faint leaf tint. */
+  :root { --ground:#eef2e1; --paper:#f8f9f1; --ink:#1e2816; --soft:#5f6b4e; --rule:#d3dac0; --leaf:#5e9c3b; --ripe:#f2c13d; --peel:#6e4521; --mm:#c9a071; --bad:#b23a2b; }
+  @media (prefers-color-scheme: dark) { :root { --ground:#161d11; --paper:#1e2718; --ink:#f1efe2; --soft:#a9b096; --rule:#2f3926; --leaf:#78b553; --ripe:#f5c94a; --peel:#9a6334; --mm:#c9a071; --bad:#e07b5f; } }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--ground); color:var(--ink); font:16px/1.5 "Instrument Sans", system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  main { max-width:640px; margin:0 auto; padding:40px 20px 80px; }
+  .mark { display:flex; align-items:center; gap:8px; font-weight:600; letter-spacing:-.01em; color:var(--soft); }
+  .mark svg { width:26px; height:26px; }
+  h1 { font-family:"Fraunces", Georgia, serif; font-variation-settings:"SOFT" 100, "opsz" 144; font-weight:600; font-size:clamp(2.5rem, 7vw, 3.6rem); line-height:1.02; letter-spacing:-.02em; margin:36px 0 14px; }
+  .lede { color:var(--soft); font-size:1.08rem; max-width:32em; margin:0 0 44px; }
+  .lede b { color:var(--ink); font-weight:500; }
+  /* The stem: three fruit that ripen as each step completes. */
+  .stem { list-style:none; margin:0; padding:0 0 0 46px; position:relative; }
+  .stem::before { content:""; position:absolute; left:12px; top:14px; bottom:30px; width:2px; background:var(--rule); border-radius:2px; }
+  .step { position:relative; padding:0 0 40px; }
+  .step:last-child { padding-bottom:0; }
+  .fruit { position:absolute; left:-46px; top:2px; width:26px; height:26px; }
+  .fruit circle { fill:var(--leaf); stroke:var(--ground); stroke-width:3; transition:fill .5s; }
+  .fruit .stalk { stroke:var(--peel); stroke-width:2; stroke-linecap:round; }
+  .step[data-state=ready] .fruit circle, .step[data-state=done] .fruit circle { fill:var(--ripe); }
+  .step[data-state=busy] .fruit circle { fill:var(--ripe); animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.55; } }
+  .step[data-state=error] .fruit circle { fill:var(--bad); }
+  h2 { font-family:"Fraunces", Georgia, serif; font-variation-settings:"SOFT" 60, "opsz" 36; font-weight:600; font-size:1.45rem; line-height:1.2; margin:0 0 8px; letter-spacing:-.01em; }
+  .status { color:var(--soft); margin:0; min-height:1.5em; }
+  .status.err { color:var(--bad); }
+  label.inline { display:inline-flex; gap:8px; align-items:center; margin:0 18px 0 0; cursor:pointer; }
+  input[type=checkbox], input[type=radio] { accent-color:var(--leaf); width:16px; height:16px; margin:0; }
+  .quiet { margin-top:14px; font-size:.95rem; color:var(--soft); }
+  .quiet summary { cursor:pointer; list-style:none; display:inline-flex; gap:6px; align-items:center; }
+  .quiet summary::-webkit-details-marker { display:none; }
+  .quiet summary::before { content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .2s; margin-right:2px; }
+  .quiet[open] summary::before { transform:rotate(45deg); }
+  .quiet .field { margin-top:12px; }
+  .quiet label.block { display:block; color:var(--ink); font-weight:500; margin-bottom:6px; }
+  .file { display:flex; gap:8px; align-items:center; }
+  .file input[type=file] { flex:1; min-width:0; color:var(--soft); font-size:.9rem; }
+  input[type=file]::file-selector-button, .pick, button.secondary { font:inherit; font-weight:500; border:1px solid var(--rule); background:var(--paper); color:var(--ink); border-radius:999px; padding:7px 14px; cursor:pointer; }
+  input[type=file]::file-selector-button { margin-right:10px; }
+  /* Reads: a drop zone that lists the chosen files as fruit chips. */
+  .drop { border:1.5px dashed var(--rule); background:var(--paper); border-radius:16px; padding:16px 18px; transition:border-color .2s, background .2s; }
+  .drop.over { border-color:var(--leaf); background:color-mix(in srgb, var(--leaf) 10%, var(--paper)); }
+  .drop .picks { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .drop .hint { color:var(--soft); font-size:.95rem; }
+  .drop input[type=file] { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .chip { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--rule); background:var(--ground); border-radius:999px; padding:5px 6px 5px 12px; font-size:.95rem; max-width:100%; }
+  .chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip small { color:var(--soft); }
+  button.clear { border:0; background:transparent; color:var(--soft); font-size:17px; line-height:1; padding:2px 6px; border-radius:999px; cursor:pointer; }
+  button.clear:hover { background:var(--rule); color:var(--ink); }
+  .choice { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .choice label { border:1px solid var(--rule); border-radius:999px; padding:7px 14px; cursor:pointer; display:inline-flex; gap:8px; align-items:center; background:var(--paper); }
+  .choice label:has(input:checked) { border-color:var(--ripe); background:color-mix(in srgb, var(--ripe) 22%, var(--paper)); }
+  .choice input { position:absolute; opacity:0; width:1px; height:1px; }
+  .choice label::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--leaf); flex:none; }
+  .choice label:has(input:checked)::before { background:var(--ripe); }
+  /* Ripen */
+  .options { display:flex; flex-wrap:wrap; gap:6px 18px; margin:14px 0 18px; color:var(--soft); }
+  .options label.inline { margin:0; }
+  #thrRow input { font:inherit; width:110px; padding:6px 10px; border:1px solid var(--rule); border-radius:8px; background:var(--paper); color:var(--ink); }
+  .actions { display:flex; gap:10px; align-items:center; }
+  button.primary { font:inherit; font-weight:600; font-size:1.05rem; border:0; border-radius:999px; background:var(--ripe); color:#1e2816; padding:12px 30px; cursor:pointer; transition:transform .15s, filter .15s; }
+  button.primary:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.04); }
+  button.primary:disabled { opacity:.35; cursor:default; }
+  button.secondary { padding:9px 18px; }
+  input:focus-visible, button:focus-visible, summary:focus-visible, .choice label:has(input:focus-visible) { outline:2px solid var(--leaf); outline-offset:2px; }
+  #funnel { display:block; width:100%; max-width:380px; height:auto; margin:6px 0 0; overflow:hidden; }
+  #funnel .bowl { fill:var(--paper); stroke:var(--rule); stroke-width:2; }
+  #funnel .stalk { stroke:var(--peel); stroke-width:1.5; stroke-linecap:round; }
+  #funnel .spots circle { fill:var(--peel); }
+  progress { width:100%; max-width:380px; height:5px; margin-top:10px; appearance:none; -webkit-appearance:none; border:0; background:var(--rule); border-radius:999px; overflow:hidden; display:block; }
+  progress::-webkit-progress-bar { background:var(--rule); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
+  #downloads { margin-top:14px; }
+  a.dl { display:inline-flex; align-items:center; gap:8px; margin:0 12px 8px 0; color:var(--ink); font-weight:600; text-decoration:none; border-bottom:2px solid var(--ripe); padding-bottom:1px; }
+  a.dl:hover { border-color:var(--leaf); }
+  /* Report */
+  #reportCard { margin-top:56px; padding-top:28px; border-top:2px solid var(--rule); }
+  #report { display:block; width:100%; height:auto; border-radius:16px; }
+  #rpTable { border-collapse:collapse; margin:16px 0 6px; }
+  #rpTable td { padding:3px 18px 3px 0; }
+  #rpTable td:first-child { color:var(--soft); }
+  #rpTable td:nth-child(2) { font-variant-numeric:tabular-nums; }
+  .foot { color:var(--soft); font-size:.9rem; margin-top:56px; }
+  @media (prefers-reduced-motion: reduce) { .step[data-state=busy] .fruit circle { animation:none; } button.primary { transition:none; } }
 </style>
 </head>
 <body>
 <main>
-  <h1><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#e9b43a"/><path d="M8 8l-2 1" stroke="#6b4423" stroke-width="2" stroke-linecap="round"/></svg>rype</h1>
-  <p class="sub">Human host filtering, ripened entirely in this tab. Reads never leave your machine.</p>
+  <div class="mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#f2c13d"/><path d="M8 8l-2 1" stroke="#6e4521" stroke-width="2" stroke-linecap="round"/></svg>rype</div>
+  <h1>Ripen your reads.</h1>
+  <p class="lede">Drop a FASTQ and this tab picks the human reads out of it. The index streams in from our server as it is needed; <b>your reads never leave your computer.</b></p>
 
-  <div class="card">
-    <h2>Index</h2>
-    <div id="idxStatus" class="status" style="margin-top:0">Loading the index…</div>
-    <label class="inline" style="margin-top:10px"><input id="useLocal" type="checkbox"> Use a local index instead</label>
-    <div id="srcLocal" hidden>
-      <label for="idx">rype index folder (<code>.ryxdi</code>)</label>
-      <div class="file"><input id="idx" type="file" webkitdirectory directory multiple><button class="secondary clear" data-clear="idx" title="Clear index">×</button></div>
-      <label for="mmFiles" style="margin-top:10px">minimap2 index for short reads: the <code>.mmi</code> and its <code>.parts.json</code> (optional)</label>
-      <div class="file"><input id="mmFiles" type="file" multiple accept=".mmi,.json"><button class="secondary clear" data-clear="mmFiles" title="Clear minimap2 index">×</button></div>
-    </div>
-  </div>
+  <ol class="stem">
+    <li class="step" id="stepIndex" data-state="waiting">
+      <svg class="fruit" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path class="stalk" d="M13 4v-3"/></svg>
+      <h2>Index</h2>
+      <p id="idxStatus" class="status">Loading the human index…</p>
+      <details class="quiet" id="localDetails">
+        <summary><input id="useLocal" type="checkbox" aria-label="Use a local index instead"> Use a local index instead</summary>
+        <div id="srcLocal" hidden>
+          <div class="field"><label class="block" for="idx">rype index folder (.ryxdi)</label>
+            <div class="file"><input id="idx" type="file" webkitdirectory directory multiple><button class="clear" data-clear="idx" title="Clear index" aria-label="Clear index">×</button></div></div>
+          <div class="field"><label class="block" for="mmFiles">minimap2 index for short reads: the .mmi and its .parts.json (optional)</label>
+            <div class="file"><input id="mmFiles" type="file" multiple accept=".mmi,.json"><button class="clear" data-clear="mmFiles" title="Clear minimap2 index" aria-label="Clear minimap2 index">×</button></div></div>
+        </div>
+      </details>
+    </li>
 
-  <div class="card">
-    <h2>Reads</h2>
-    <div class="row" style="margin-top:0">
-      <div><label for="fq1">R1 (or single-end) FASTQ, plain or <code>.gz</code></label><div class="file"><input id="fq1" type="file" accept=".fq,.fastq,.gz"><button class="secondary clear" data-clear="fq1" title="Clear R1">×</button></div></div>
-      <div><label for="fq2">R2 FASTQ (optional)</label><div class="file"><input id="fq2" type="file" accept=".fq,.fastq,.gz"><button class="secondary clear" data-clear="fq2" title="Clear R2">×</button></div></div>
-    </div>
-    <div id="rtRow" hidden style="margin-top:10px">
-      <div id="rtDetected" class="status" style="margin:0 0 6px"></div>
-      <label class="inline"><input type="radio" name="rt" value="short"> Short reads: rype, then minimap2</label>
-      <label class="inline"><input type="radio" name="rt" value="long"> Long reads: rype only</label>
-    </div>
-  </div>
+    <li class="step" id="stepReads" data-state="waiting">
+      <svg class="fruit" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path class="stalk" d="M13 4v-3"/></svg>
+      <h2>Reads</h2>
+      <div class="drop" id="drop">
+        <div class="picks" id="picks">
+          <label class="pick" for="fq1">Choose R1</label>
+          <label class="pick" for="fq2">Choose R2</label>
+          <span class="hint">or drop FASTQ files here, plain or .gz. R2 is optional.</span>
+        </div>
+        <input id="fq1" type="file" accept=".fq,.fastq,.gz"><input id="fq2" type="file" accept=".fq,.fastq,.gz">
+      </div>
+      <div id="rtRow" hidden>
+        <p id="rtDetected" class="status" style="margin-top:12px"></p>
+        <div class="choice" role="radiogroup" aria-label="Read type">
+          <label><input type="radio" name="rt" value="short"> Short reads</label>
+          <label><input type="radio" name="rt" value="long"> Long reads</label>
+        </div>
+      </div>
+    </li>
 
-  <div class="card">
-    <h2>Filter</h2>
-    <div id="plan" class="status" style="margin:0 0 8px"></div>
-    <label class="inline"><input id="thrOn" type="checkbox"> Set the containment threshold</label>
-    <label class="inline"><input id="gz" type="checkbox"> gzip output</label>
-    <div id="thrRow" hidden class="row" style="margin-top:4px"><div style="flex:1 1 320px"><label for="thr">Containment threshold (default 0 for short reads, 0.05 for long)</label><input id="thr" type="number" min="0" max="1" step="0.01"></div></div>
-    <div style="margin-top:14px"><button id="run" disabled>Run</button> <button id="cancel" class="secondary" hidden>Cancel</button></div>
-    <div id="runStatus" class="status"></div>
-    <canvas id="funnel" width="360" height="230" hidden aria-label="reads ripening through the filter"></canvas>
-    <progress id="bar" value="0" max="1" hidden></progress>
-    <table id="stats" hidden>
-      <tr><td>Reads / pairs processed</td><td id="sTotal">0</td></tr>
-      <tr><td id="sAffectedLabel">Removed</td><td id="sAffected">0</td></tr>
-      <tr><td>Index bytes fetched</td><td id="sFetched">–</td></tr>
-      <tr><td>Elapsed</td><td id="sElapsed">0 s</td></tr>
-      <tr><td>Time breakdown</td><td id="sPhases">–</td></tr>
-    </table>
-    <div id="downloads"></div>
-    <p class="note">Green bananas go in, ripe ones come out. Reads are screened in batches across several rype workers; short reads then get a minimap2 pass over a multi-part human index. Index shards are read by byte range on demand and never stored. Outputs are written to this browser's private storage as they are produced and offered for download at the end.</p>
-  </div>
+    <li class="step" id="stepRun" data-state="waiting">
+      <svg class="fruit" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path class="stalk" d="M13 4v-3"/></svg>
+      <h2>Ripen</h2>
+      <p id="plan" class="status">Human reads are picked out and the rest is handed back as FASTQ.</p>
+      <div class="options">
+        <label class="inline"><input id="thrOn" type="checkbox"> Set the containment threshold</label>
+        <label class="inline"><input id="gz" type="checkbox"> gzip the output</label>
+        <span id="thrRow" hidden><input id="thr" type="number" min="0" max="1" step="0.01" aria-label="Containment threshold"> <small>0 for short reads and 0.05 for long reads unless set</small></span>
+      </div>
+      <div class="actions"><button id="run" class="primary" disabled>Ripen</button> <button id="cancel" class="secondary" hidden>Stop</button></div>
+      <p id="runStatus" class="status" style="margin-top:12px"></p>
+      <progress id="bar" value="0" max="1" hidden></progress>
+      <svg id="funnel" viewBox="0 -36 360 300" hidden aria-label="reads ripening through the filter">
+        <path class="bowl" d="M50 40 H310 L196 132 V158 H164 V132 Z"/>
+        <g id="bananas"></g>
+      </svg>
+      <div id="downloads"></div>
+    </li>
+  </ol>
 
-  <div id="reportCard" class="card" hidden>
+  <section id="reportCard" hidden aria-label="Report">
     <h2>Report</h2>
     <canvas id="report" width="1440" height="900" aria-describedby="rpTable"></canvas>
     <table id="rpTable"></table>
-    <div style="margin-top:10px"><button id="rpSave" class="secondary">Save report as PNG</button></div>
-  </div>
+    <button id="rpSave" class="secondary">Save report as PNG</button>
+  </section>
+
+  <p class="foot">rype sketches each read in purine/pyrimidine space and checks it against a human index; short reads then get a second look from minimap2. Everything runs in this tab, in WebAssembly.</p>
 </main>
 
 <script>
@@ -110,10 +174,11 @@ const DEFAULT_INDEX_URL = 'http://127.0.0.1:8766/human-host-filter/';
 const $ = (id) => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const mode = qs.get('mode') === 'classify' ? 'classify' : 'filter'; // classify is kept for the harness only; the page is a host filter
-let worker, lastMount = null; // lastMount: the mount message, replayed after Cancel replaces the worker
+const dev = (...a) => { console.log('[rype]', ...a); (window.__log ||= []).push(a.map((x) => typeof x === 'string' ? x : JSON.stringify(x)).join(' ')); };
+let worker, lastMount = null; // lastMount: the mount message, replayed after Stop replaces the worker
 function spawnWorker() {
   worker = new Worker('worker.js?v=' + Date.now());
-  worker.onerror = (e) => { window.__error = e.message; $('runStatus').textContent = 'Error: ' + e.message; };
+  worker.onerror = (e) => { window.__error = e.message; setRunStatus('Error: ' + e.message, true); };
   worker.onmessage = onWorkerMessage;
 }
 spawnWorker();
@@ -122,15 +187,28 @@ const fmt = (n) => n.toLocaleString();
 const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
 const radio = (name) => document.querySelector(`input[name=${name}]:checked`)?.value;
 const r1 = () => $('fq1').files[0] || null, r2 = () => $('fq2').files[0] || null;
-function updateRun() { $('run').disabled = !(indexReady && r1()) || running; $('cancel').hidden = !running; updatePlan(); }
-function setRunning(on) { running = on; updateRun(); if (on) funnel.start(); else funnel.stop(); }
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// The stem: each step's fruit ripens (green -> yellow) when that step is satisfied.
+function setStep(id, state) {
+  const el = $(id); if (el.dataset.state === state) return;
+  el.dataset.state = state;
+  if (state === 'ready' && !still) anime.animate(el.querySelector('.fruit'), { scale: [1, 1.3, 1], duration: 550, ease: 'outBack' });
+}
+function updateRun() {
+  $('run').disabled = !(indexReady && r1()) || running; $('run').hidden = running; $('cancel').hidden = !running;
+  setStep('stepReads', r1() ? 'ready' : 'waiting');
+  if (!running) setStep('stepRun', indexReady && r1() ? 'ready' : 'waiting');
+  updatePlan();
+}
+function setRunning(on) { running = on; updateRun(); if (on) { setStep('stepRun', 'busy'); funnel.start(); } else funnel.stop(); }
 
-function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); }
+function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); if (err) setStep('stepIndex', 'error'); }
+function setRunStatus(msg, err) { $('runStatus').textContent = msg; $('runStatus').classList.toggle('err', !!err); if (err) setStep('stepRun', 'error'); }
 function mountLocal(files) {
   // A .ryxdi is flat apart from inverted/: map by basename so the same code
   // serves the folder picker (webkitRelativePath), drag-drop, and automation.
   const paths = files.map((f) => /^shard\.\d+\.parquet$/.test(f.name) ? 'inverted/' + f.name : f.name);
-  mount('Opening index…', { source: 'local', files, paths });
+  mount('Opening the index…', { source: 'local', files, paths });
 }
 // A bundle directory holds index.json ({rype: "<dir>/", minimap2: "<file>.mmi"}) next to both
 // indexes, so one URL configures the rype index and the second pass together.
@@ -140,27 +218,51 @@ async function mountUrl(base) {
   try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
   const bundleMm = bundle?.rype && bundle.minimap2 ? new URL(bundle.minimap2, base).href : null;
   if (bundle?.rype) base = new URL(bundle.rype, base).href;
-  mount('Fetching manifest and sizing shards…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024, bundleMm });
+  mount('Loading the human index…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024, bundleMm });
 }
 function mount(status, src) {
-  indexReady = false; updateRun(); setIdxStatus(status);
+  indexReady = false; setStep('stepIndex', 'busy'); updateRun(); setIdxStatus(status);
   lastMount = { type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), ...src };
   worker.postMessage(lastMount);
 }
-function unmount(status) { indexReady = false; lastMount = null; updateRun(); setIdxStatus(status); }
-const indexUrl = qs.get('index') || DEFAULT_INDEX_URL;
+function unmount(status) { indexReady = false; lastMount = null; setStep('stepIndex', 'waiting'); updateRun(); setIdxStatus(status); }
+const indexUrl = new URL(qs.get('index') || DEFAULT_INDEX_URL, location.href).href; // ?index= may be relative to the page
+$('useLocal').addEventListener('click', (e) => e.stopPropagation()); // the checkbox sits in the summary; do not also toggle the details
 $('useLocal').addEventListener('change', () => {
-  $('srcLocal').hidden = !$('useLocal').checked;
+  $('srcLocal').hidden = !$('useLocal').checked; $('localDetails').open = $('useLocal').checked;
   if (!$('useLocal').checked) return mountUrl(indexUrl);
-  if ($('idx').files.length) mountLocal([...$('idx').files]); else unmount('Pick a .ryxdi folder.');
+  if ($('idx').files.length) mountLocal([...$('idx').files]); else unmount('Choose a .ryxdi folder.');
 });
 $('idx').addEventListener('change', (e) => {
   if (e.target.files.length) return mountLocal([...e.target.files]);
-  if (lastMount?.source === 'local') unmount('Pick a .ryxdi folder.'); // only the mounted index is affected by clearing its picker
+  if (lastMount?.source === 'local') unmount('Choose a .ryxdi folder.'); // only the mounted index is affected by clearing its picker
 });
 $('mmFiles').addEventListener('change', updatePlan);
-// × beside each picker: empty the input and notify its change listener, no reload needed.
-document.querySelectorAll('button.clear').forEach((b) => b.addEventListener('click', () => { const el = $(b.dataset.clear); el.value = ''; el.dispatchEvent(new Event('change')); }));
+// × beside each file: empty the input and notify its change listener, no reload needed.
+document.addEventListener('click', (e) => { const b = e.target.closest('button.clear'); if (!b) return; const el = $(b.dataset.clear); el.value = ''; el.dispatchEvent(new Event('change')); });
+
+// Reads: the chosen files show as chips; dropping files fills R1 then R2.
+function renderPicks() {
+  const picks = $('picks'); picks.innerHTML = '';
+  for (const [id, label] of [['fq1', 'R1'], ['fq2', 'R2']]) {
+    const f = $(id).files[0];
+    if (f) { const c = document.createElement('span'); c.className = 'chip'; c.innerHTML = `<span><small>${label}</small>&nbsp; ${f.name.replace(/</g, '&lt;')} <small>${fmtBytes(f.size)}</small></span><button class="clear" data-clear="${id}" title="Remove ${label}" aria-label="Remove ${label}">×</button>`; picks.appendChild(c); }
+    else { const l = document.createElement('label'); l.className = 'pick'; l.htmlFor = id; l.textContent = `Choose ${label}`; picks.appendChild(l); }
+  }
+  const h = document.createElement('span'); h.className = 'hint'; h.textContent = r1() ? (r2() ? 'Paired.' : 'Single-end, unless you add R2.') : 'or drop FASTQ files here, plain or .gz. R2 is optional.'; picks.appendChild(h);
+}
+const setFiles = (id, file) => { const dt = new DataTransfer(); dt.items.add(file); $(id).files = dt.files; $(id).dispatchEvent(new Event('change')); };
+{
+  const drop = $('drop');
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault(); drop.classList.remove('over');
+    const files = [...e.dataTransfer.files].filter((f) => /\.(fq|fastq)(\.gz)?$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+    if (files[0]) setFiles('fq1', files[0]); if (files[1]) setFiles('fq2', files[1]);
+  });
+}
+$('fq2').addEventListener('change', () => { renderPicks(); updatePlan(); });
 
 // Read type decides the pipeline: short reads (first R1 read <= 300 bp) get the minimap2 pass and a
 // containment threshold of 0 (any shared minimizer); long reads are rype-only at 0.05. The
@@ -179,14 +281,14 @@ async function firstReadLength(file) {
   return lines[1].trim().length;
 }
 $('fq1').addEventListener('change', () => {
-  const f = r1(); $('rtRow').hidden = !f; updateRun();
+  const f = r1(); $('rtRow').hidden = !f; renderPicks(); updateRun();
   if (!f) return;
   detecting = firstReadLength(f).then((bp) => {
     const rt = bp > LONG_READ_BP ? 'long' : 'short';
     document.querySelector(`input[name=rt][value=${rt}]`).checked = true;
-    $('rtDetected').textContent = `Detected ${rt} reads (first read ${fmt(bp)} bp). Override below if that is wrong.`; $('rtDetected').classList.remove('err');
+    $('rtDetected').textContent = `${rt === 'long' ? 'Long' : 'Short'} reads, judging by the first one (${fmt(bp)} bp). Change it if that is wrong.`; $('rtDetected').classList.remove('err');
     window.__readType = rt; updatePlan();
-  }).catch((e) => { $('rtDetected').textContent = `Could not read the first record (${e.message}); choose the read type.`; $('rtDetected').classList.add('err'); updatePlan(); });
+  }).catch((e) => { $('rtDetected').textContent = `Could not read the first record (${e.message}). Choose the read type.`; $('rtDetected').classList.add('err'); updatePlan(); });
 });
 document.querySelectorAll('input[name=rt]').forEach((el) => el.addEventListener('change', updatePlan));
 $('thrOn').addEventListener('change', () => { $('thrRow').hidden = !$('thrOn').checked; if ($('thrOn').checked && $('thr').value === '') $('thr').value = THR_DEFAULT[radio('rt') || 'short']; updatePlan(); });
@@ -197,12 +299,12 @@ const mmUrl = () => mmUrlOverride || (!$('useLocal').checked && lastMount?.bundl
 function mmAvailable() { return !!mmUrl() || [...$('mmFiles').files].some((f) => /\.mmi$/i.test(f.name)); }
 function updatePlan() {
   const rt = radio('rt'), el = $('plan');
-  if (!r1() || !rt) { el.textContent = mode === 'classify' ? 'Classify: one row per read and bucket.' : ''; return; }
-  const thr = `threshold ${threshold()}`;
+  if (!r1() || !rt) { el.textContent = mode === 'classify' ? 'Classify: one row per read and bucket.' : 'Human reads are picked out and the rest is handed back as FASTQ.'; return; }
+  const thr = `containment threshold ${threshold()}`;
   if (mode === 'classify') el.textContent = `Classify with rype, ${thr}.`;
-  else if (rt === 'long') el.textContent = `Long reads: rype, ${thr}.`;
-  else if (mmAvailable()) el.textContent = `Short reads: rype (${thr}), then minimap2 on what survives.`;
-  else el.textContent = `Short reads: rype only (${thr}); this index has no minimap2 part, so the second pass is skipped.`;
+  else if (rt === 'long') el.textContent = `Long reads: rype picks out anything at or above ${thr}.`;
+  else if (mmAvailable()) el.textContent = `Short reads: rype first (${thr}), then minimap2 double-checks what survives.`;
+  else el.textContent = `Short reads: rype only (${thr}). This index has no minimap2 part, so there is no second check.`;
 }
 // Build the second-pass config: the part byte ranges come from <index>.parts.json (tools/mmi_parts.py).
 async function mmConfig() {
@@ -222,105 +324,98 @@ function mmWorkerCount() { const n = parseInt(qs.get('mmWorkers'), 10); return n
 async function startRun() {
   let mm;
   try { await detecting; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
-  catch (e) { $('runStatus').textContent = 'Error: ' + e.message; $('runStatus').classList.add('err'); window.__error = e.message; return; }
+  catch (e) { setRunStatus('Error: ' + e.message, true); window.__error = e.message; return; }
   setRunning(true);
-  $('downloads').innerHTML = ''; $('stats').hidden = false; $('bar').hidden = false; $('bar').value = 0; $('reportCard').hidden = true;
-  $('sAffectedLabel').textContent = mode === 'classify' ? 'Hits reported' : 'Removed (hit the index)';
-  $('runStatus').textContent = 'Running…'; $('runStatus').classList.remove('err');
+  $('downloads').innerHTML = ''; $('bar').hidden = false; $('bar').value = 0; $('reportCard').hidden = true;
+  setRunStatus('Ripening…');
   worker.postMessage({ type: 'run', mode, r1: r1(), r2: r2(), threshold: threshold(),
                        batchBytes: batchBytes(), gzipOut: $('gz').checked, mm, mmWorkers: mmWorkerCount() });
 }
 $('run').addEventListener('click', startRun);
-// Funnel animation while a job runs: green (unripe) bananas drop into the funnel,
-// ripe yellow ones with brown spots come out of the spout. Pure decoration; it is
-// not tied to the counts. Respects prefers-reduced-motion by showing a still frame.
+
+// Funnel while a job runs: green bananas drop in, gather at the neck, and come out ripe with
+// spots. SVG elements driven by anime.js; pure decoration, not tied to the counts. With
+// prefers-reduced-motion a still frame is shown.
 const funnel = (() => {
-  const cv = $('funnel'), ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
-  const mouthY = 44, neckY = 128, spoutY = 150, mouthHalf = 120, neckHalf = 18, cx = W / 2;
+  const svg = $('funnel'), layer = $('bananas'), ns = 'http://www.w3.org/2000/svg';
+  const cx = 180, neckY = 132, spoutY = 160, mouthHalf = 128;
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-  let col = {}; // theme colours, resolved once per start()
-  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let items = [], raf = 0, last = 0;
-  const halfAt = (y) => y < mouthY ? mouthHalf : y > neckY ? neckHalf : mouthHalf - (mouthHalf - neckHalf) * (y - mouthY) / (neckY - mouthY);
-  const banana = (x, y, rot, ripe) => {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
-    ctx.beginPath(); ctx.moveTo(-15, -4); ctx.quadraticCurveTo(0, 20, 15, -4); ctx.quadraticCurveTo(0, 4, -15, -4); ctx.closePath();
-    ctx.fillStyle = ripe ? col.ripe : col.leaf; ctx.fill();
-    ctx.strokeStyle = col.brown; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(-15, -4); ctx.lineTo(-18, -7); ctx.stroke();
-    if (ripe) { ctx.fillStyle = col.brown; for (const [sx, sy] of [[-7, 2], [-1, 6], [6, 3]]) { ctx.beginPath(); ctx.arc(sx, sy, 1.6, 0, 7); ctx.fill(); } }
-    ctx.restore();
+  let timer = 0, col = {};
+  const make = (x, y, rot, ripe) => {
+    const g = document.createElementNS(ns, 'g');
+    g.innerHTML = `<path class="peel" d="M-15,-4 Q0,20 15,-4 Q0,4 -15,-4Z" fill="${ripe ? col.ripe : col.leaf}"/><path class="stalk" d="M-15,-4 L-18,-7"/><g class="spots" opacity="${ripe ? 1 : 0}"><circle cx="-7" cy="2" r="1.6"/><circle cx="-1" cy="6" r="1.6"/><circle cx="6" cy="3" r="1.6"/></g>`;
+    g.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
+    layer.appendChild(g); return g;
   };
-  const draw = () => {
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = col.line; ctx.beginPath();
-    ctx.moveTo(cx - mouthHalf, mouthY); ctx.lineTo(cx + mouthHalf, mouthY); ctx.lineTo(cx + neckHalf, neckY); ctx.lineTo(cx + neckHalf, spoutY); ctx.lineTo(cx - neckHalf, spoutY); ctx.lineTo(cx - neckHalf, neckY); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = col.muted; ctx.lineWidth = 2; ctx.stroke();
-    for (const b of items) banana(b.x, b.y, b.rot, b.y > spoutY);
-  };
-  const step = (t) => {
-    const dt = Math.min(0.05, (t - last) / 1000 || 0.016); last = t;
-    if (Math.random() < dt * 6) items.push({ x: cx + (Math.random() - 0.5) * 2 * (mouthHalf - 20), y: -16, vy: 60 + Math.random() * 60, rot: Math.random() * 6.3, spin: (Math.random() - 0.5) * 4 });
-    for (const b of items) {
-      b.vy += (b.y > spoutY ? 400 : 160) * dt; b.y += b.vy * dt; b.rot += b.spin * dt;
-      if (b.y > mouthY && b.y <= spoutY) { const h = halfAt(b.y) - 12; b.x += (cx - b.x) * Math.min(1, 3 * dt); b.x = Math.max(cx - h, Math.min(cx + h, b.x)); }
-      else if (b.y > spoutY) { b.x += (b.x - cx) * 2 * dt; b.spin *= 0.98; }
-    }
-    items = items.filter((b) => b.y < H + 20);
-    draw(); raf = requestAnimationFrame(step);
+  const spawn = () => {
+    const g = make(0, 0, 0, false);
+    const x0 = cx + (Math.random() - 0.5) * 2 * (mouthHalf - 30), xOut = cx + (Math.random() - 0.5) * 220, rot0 = Math.random() * 360;
+    const fall = 900 + Math.random() * 500, out = 650 + Math.random() * 250;
+    anime.animate(g, {
+      translateX: [{ to: x0, duration: 0 }, { to: cx + (Math.random() - 0.5) * 14, duration: fall, ease: 'inSine' }, { to: cx, duration: 180, ease: 'linear' }, { to: xOut, duration: out, ease: 'outQuad' }],
+      translateY: [{ to: -18, duration: 0 }, { to: neckY, duration: fall, ease: 'inQuad' }, { to: spoutY, duration: 180, ease: 'linear' }, { to: 275, duration: out, ease: 'inQuad' }],
+      rotate: [{ to: rot0, duration: 0 }, { to: rot0 + 160 + Math.random() * 200, duration: fall + 180 + out, ease: 'linear' }],
+      onComplete: () => g.remove(),
+    });
+    anime.animate(g.querySelector('.peel'), { fill: { to: col.ripe, duration: 420, delay: fall - 120, ease: 'inOutSine' } });
+    anime.animate(g.querySelector('.spots'), { opacity: { to: 1, duration: 300, delay: fall + 120 } });
   };
   return {
-    start() { cv.hidden = false; items = []; last = 0; cancelAnimationFrame(raf); col = Object.fromEntries(['ripe', 'leaf', 'brown', 'line', 'muted'].map((k) => [k, css('--' + k)]));
-      if (still) { items = [{ x: cx - 60, y: 16, rot: 0.3 }, { x: cx + 40, y: 24, rot: -0.4 }, { x: cx, y: spoutY + 40, rot: 0.2 }]; draw(); }
-      else raf = requestAnimationFrame(step); },
-    stop() { cancelAnimationFrame(raf); raf = 0; cv.hidden = true; },
+    start() {
+      col = { ripe: css('--ripe'), leaf: css('--leaf') }; layer.innerHTML = ''; svg.removeAttribute('hidden'); // SVG elements have no .hidden property
+      if (still) { make(cx - 70, 14, 20, false); make(cx + 50, 22, -25, false); make(cx, spoutY + 60, 10, true); return; }
+      clearInterval(timer); timer = setInterval(spawn, 170); spawn();
+    },
+    stop() { clearInterval(timer); timer = 0; svg.setAttribute('hidden', ''); layer.innerHTML = ''; },
   };
 })();
-// Cancel: terminating the coordinator also terminates its classifier/minimap2 workers
+// Stop: terminating the coordinator also terminates its classifier/minimap2 workers
 // and releases the OPFS output handles. A fresh worker then reloads the index.
 async function cancelRun() {
   if (!running) return;
   worker.terminate(); spawnWorker();
   indexReady = false; setRunning(false);
-  $('bar').hidden = true; $('stats').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
-  $('runStatus').textContent = 'Cancelled.'; window.__cancelled = true;
+  $('bar').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
+  setRunStatus('Cancelled.'); window.__cancelled = true;
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry('rype-out', { recursive: true }); } catch {} // partial outputs
-  if (lastMount) { setIdxStatus('Reloading index…'); worker.postMessage(lastMount); }
+  if (lastMount) mount('Reloading the index…', lastMount);
 }
 $('cancel').addEventListener('click', cancelRun);
 window.__cancel = cancelRun;
 
 // Report: one canvas (so it saves as a single PNG) with the human fraction, a bar of
-// in / removed by rype / removed by minimap2 / survived, and the distribution of each
-// read's best containment score with the threshold marked; the same numbers in a table.
+// removed by rype / removed by minimap2 / survived, and the distribution of each read's best
+// containment score with the threshold marked; the same numbers in a table.
 const report = (() => {
   const cv = $('report'), ctx = cv.getContext('2d'), W = 720, H = 450, S = cv.width / W;
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const pct = (n, t) => t ? (100 * n / t).toFixed(n && 100 * n / t < 0.1 ? 2 : 1) + '%' : '–';
+  const serif = '"Fraunces", Georgia, serif', sans = '"Instrument Sans", system-ui, sans-serif';
   let base = 'report';
   function draw(d) {
-    const c = Object.fromEntries(['bg', 'card', 'fg', 'muted', 'line', 'leaf', 'ripe', 'brown', 'mm'].map((k) => [k, css('--' + k)]));
+    const c = Object.fromEntries(['paper', 'ink', 'soft', 'rule', 'leaf', 'ripe', 'peel', 'mm'].map((k) => [k, css('--' + k)]));
     const total = d.total, rype = d.rypeRemoved ?? d.affected, mm = d.mmRemoved || 0, kept = total - rype - mm, human = rype + mm;
-    const unit = d.paired ? 'pairs' : 'reads', thr = d.threshold;
+    const unit = d.paired ? 'pairs' : 'reads', thr = d.threshold, twoPass = d.mmRemoved != null;
     base = d.files[0].name.replace(/\.(masked|classified).*$/, '');
-    ctx.setTransform(S, 0, 0, S, 0, 0); ctx.fillStyle = c.card; ctx.fillRect(0, 0, W, H);
-    ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-    ctx.fillText(`${base}  ·  ${radio('rt')} reads  ·  rype threshold ${thr}` + (mm || d.mmRemoved != null ? '  ·  minimap2 second pass' : ''), 24, 30);
-    ctx.font = '700 44px system-ui, sans-serif'; ctx.fillStyle = c.fg; ctx.fillText(pct(human, total), 24, 82);
+    ctx.setTransform(S, 0, 0, S, 0, 0); ctx.fillStyle = c.paper; ctx.fillRect(0, 0, W, H);
+    ctx.font = `500 13px ${sans}`; ctx.fillStyle = c.soft; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText(`${base}: ${radio('rt')} reads, containment threshold ${thr}` + (twoPass ? ', then minimap2' : ''), 24, 30);
+    ctx.font = `600 46px ${serif}`; ctx.fillStyle = c.ink; ctx.fillText(pct(human, total), 24, 82);
     const w0 = ctx.measureText(pct(human, total)).width;
-    ctx.font = '500 16px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.fillText(`of ${fmt(total)} ${unit} were human and removed`, 24 + w0 + 12, 82);
+    ctx.font = `500 16px ${sans}`; ctx.fillStyle = c.soft; ctx.fillText(`of ${fmt(total)} ${unit} were human and removed`, 24 + w0 + 12, 82);
     // stacked bar: rype | minimap2 | survived
     const bx = 24, by = 104, bw = W - 48, bh = 22, segs = [[rype, c.ripe, 'rype'], [mm, c.mm, 'minimap2'], [kept, c.leaf, 'survived']];
     let x = bx; ctx.save(); ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.clip();
-    ctx.fillStyle = c.line; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = c.rule; ctx.fillRect(bx, by, bw, bh);
     for (const [n, col] of segs) { const w = total ? bw * n / total : 0; ctx.fillStyle = col; ctx.fillRect(x, by, w, bh); x += w; }
     ctx.restore();
-    ctx.font = '500 12px system-ui, sans-serif'; x = bx;
-    for (const [n, col, name] of segs) { ctx.fillStyle = col; ctx.fillRect(x, by + bh + 10, 10, 10); ctx.fillStyle = c.fg; const t = `${name} ${fmt(n)} (${pct(n, total)})`; ctx.fillText(t, x + 15, by + bh + 19); x += ctx.measureText(t).width + 34; }
+    ctx.font = `500 12px ${sans}`; x = bx;
+    for (const [n, col, name] of segs) { if (name === 'minimap2' && !twoPass) continue; ctx.fillStyle = col; ctx.fillRect(x, by + bh + 10, 10, 10); ctx.fillStyle = c.ink; const t = `${name} ${fmt(n)} (${pct(n, total)})`; ctx.fillText(t, x + 15, by + bh + 19); x += ctx.measureText(t).width + 34; }
     // histogram of best containment score: bin 0 = no shared minimizer, then 101 bins of 0.01
     const hx = 56, hy = 180, hw = W - 80, hh = 200, gap = 52, binW = (hw - gap) / 101, maxN = Math.max(1, ...d.hist), yOf = (n) => hh * Math.log10(1 + n) / Math.log10(1 + maxN);
-    ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = c.fg; ctx.fillText('Best containment score per ' + unit.replace(/s$/, ''), hx, hy - 8);
-    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx, hy + hh + .5); ctx.lineTo(hx + hw, hy + hh + .5); ctx.stroke();
-    ctx.font = '500 10px system-ui, sans-serif'; ctx.fillStyle = c.muted; ctx.textAlign = 'right';
+    ctx.font = `600 13px ${sans}`; ctx.fillStyle = c.ink; ctx.fillText('Best containment score per ' + unit.replace(/s$/, ''), hx, hy - 8);
+    ctx.strokeStyle = c.rule; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx, hy + hh + .5); ctx.lineTo(hx + hw, hy + hh + .5); ctx.stroke();
+    ctx.font = `500 10px ${sans}`; ctx.fillStyle = c.soft; ctx.textAlign = 'right';
     for (let p = 1; 10 ** p <= maxN; p++) { const y = Math.round(hy + hh - yOf(10 ** p)) + .5; ctx.beginPath(); ctx.moveTo(hx, y); ctx.lineTo(hx + hw, y); ctx.stroke(); ctx.fillText(p >= 6 ? 10 ** (p - 6) + 'M' : p >= 3 ? 10 ** (p - 3) + 'k' : String(10 ** p), hx - 6, y + 3); }
     const removedBin = (b) => (b - 1) / 100 >= thr - 1e-9; // bin b holds scores in [(b-1)/100, b/100)
     // Bar height is the bin's count (log scale); a bin rype kept is split by share:
@@ -333,17 +428,17 @@ const report = (() => {
       ctx.fillStyle = c.leaf; ctx.fillRect(x0, y0, w, h - hm);
       if (hm) { ctx.fillStyle = c.mm; ctx.fillRect(x0, y0 + h - hm, w, hm); }
     }
-    ctx.fillStyle = c.muted; ctx.font = '500 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = c.soft; ctx.font = `500 11px ${sans}`; ctx.textAlign = 'center';
     ctx.fillText('no hit', hx + 12, hy + hh + 16);
     for (const v of [0, 0.25, 0.5, 0.75, 1]) { const tx = hx + gap + v * 100 * binW + (v === 1 ? binW : 0); ctx.fillText(v.toFixed(2), tx, hy + hh + 16); }
-    ctx.textAlign = 'left'; ctx.fillText(`${unit}, log scale (tallest bin ${fmt(maxN)})` + (d.histMm ? '; left of the threshold, light brown is the share minimap2 removed' : ''), hx, hy + hh + 34);
+    ctx.textAlign = 'left'; ctx.fillText(`${unit}, log scale (tallest bin ${fmt(maxN)})` + (twoPass ? '. Left of the threshold, light brown is the share minimap2 removed.' : ''), hx, hy + hh + 34);
     // threshold marker: everything at/right of it was removed by rype
     const tx = hx + gap + thr * 100 * binW;
-    ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = c.brown; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(tx, hy + 6); ctx.lineTo(tx, hy + hh); ctx.stroke(); ctx.restore();
-    ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = c.brown;
-    const lbl = `threshold ${thr}: removed →`; const lw = ctx.measureText(lbl).width;
+    ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = c.peel; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(tx, hy + 6); ctx.lineTo(tx, hy + hh); ctx.stroke(); ctx.restore();
+    ctx.font = `600 12px ${sans}`; ctx.fillStyle = c.peel;
+    const lbl = `threshold ${thr}: removed from here on`; const lw = ctx.measureText(lbl).width;
     ctx.fillText(lbl, Math.min(tx + 6, hx + hw - lw), hy + 16);
-    $('rpTable').innerHTML = [[`${unit[0].toUpperCase() + unit.slice(1)} in`, total, ''], ['Removed by rype (score ≥ ' + thr + ')', rype, pct(rype, total)], ...(d.mmRemoved != null ? [['Removed by minimap2', mm, pct(mm, total)]] : []), ['Survived (downloaded)', kept, pct(kept, total)]]
+    $('rpTable').innerHTML = [[`${unit[0].toUpperCase() + unit.slice(1)} in`, total, ''], ['Removed by rype (score ≥ ' + thr + ')', rype, pct(rype, total)], ...(twoPass ? [['Removed by minimap2', mm, pct(mm, total)]] : []), ['Survived (downloaded)', kept, pct(kept, total)]]
       .map(([k, n, p]) => `<tr><td>${k}</td><td>${fmt(n)}</td><td>${p}</td></tr>`).join('');
     $('reportCard').hidden = false;
   }
@@ -351,31 +446,36 @@ const report = (() => {
   return { draw };
 })();
 
-function showStats(d) {
-  $('sTotal').textContent = fmt(d.total); $('sAffected').textContent = fmt(d.affected);
-  $('sFetched').textContent = d.bytesFetched ? fmtBytes(d.bytesFetched) : '–'; $('sElapsed').textContent = (d.elapsedMs / 1000).toFixed(1) + ' s';
-  if (d.phases) { const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s'; $('sPhases').textContent = `rype: ${p.batches} batch(es) on ${p.workers} worker(s), read+gunzip ${s(p.read)}, batching ${s(p.batch)}, classify ${s(p.classify)} CPU, write ${s(p.write)}` + (p.mm ? `; minimap2: ${p.mm.parts} part(s), ${p.mm.concurrency} at a time, ${p.mm.batches} batch(es), map ${s(p.mm.tMap)}, write ${s(p.mm.tWrite)}; removed ${fmt(d.rypeRemoved)} by rype + ${fmt(d.mmRemoved)} by minimap2` : ''); }
-}
+// Progress and timings go to the console for development; the page shows one sentence.
+const friendlyStage = (s) => !s ? '' : s.startsWith('minimap2') ? `minimap2 is double-checking the survivors (${s.replace('minimap2 ', '')})` : 'rype is sorting reads';
 function onWorkerMessage(e) {
   const d = e.data;
   if (d.type === 'mounted') {
-    indexReady = true; updateRun();
-    setIdxStatus(`Index loaded (${d.source}): k=${d.k}, w=${d.w}, ${fmt(d.buckets)} bucket(s), ${d.shards} shard(s), ${fmtBytes(d.shardBytes)}; ${d.workers} classifier worker(s)` + (lastMount?.bundleMm ? '; minimap2 index for short reads.' : '.'));
+    indexReady = true; setStep('stepIndex', 'ready'); updateRun();
+    setIdxStatus(d.source === 'url' && !$('useLocal').checked ? `Human index ready${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.` : `Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.`);
+    dev('index mounted', { source: d.source, k: d.k, w: d.w, buckets: d.buckets, shards: d.shards, shardBytes: d.shardBytes, workers: d.workers });
   } else if (d.type === 'progress') {
-    window.__progress = d; showStats(d); if (d.stage) $('runStatus').textContent = `Running: ${d.stage}…`; if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+    window.__progress = d;
+    setRunStatus(`${friendlyStage(d.stage)}: ${fmt(d.total)} ${r2() ? 'pairs' : 'reads'} so far, ${fmt(d.affected)} ${mode === 'classify' ? 'with hits' : 'human'}.`);
+    if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+    console.debug('[rype] progress', d.stage, { total: d.total, affected: d.affected, elapsedS: +(d.elapsedMs / 1000).toFixed(1), bytesFetched: d.bytesFetched, phases: d.phases });
   } else if (d.type === 'done') {
-    setRunning(false); showStats(d); $('bar').value = 1; $('runStatus').textContent = 'Done.';
-    for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Download ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
+    setRunning(false); setStep('stepRun', 'done'); $('bar').value = 1;
+    setRunStatus(mode === 'classify' ? `Done: ${fmt(d.total)} reads classified.` : `Ripe. ${fmt(d.affected)} of ${fmt(d.total)} ${d.paired ? 'pairs' : 'reads'} were human; the rest is yours below.`);
+    for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Save ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     if (d.hist) report.draw(d);
+    const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s';
+    dev('done', { total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsed: s(d.elapsedMs), bytesFetched: d.bytesFetched ? fmtBytes(d.bytesFetched) : 0 });
+    if (p) dev(`rype: ${p.batches} batch(es) on ${p.workers} worker(s), read+gunzip ${s(p.read)}, batching ${s(p.batch)}, classify ${s(p.classify)} CPU, write ${s(p.write)}` + (p.mm ? `; minimap2: ${p.mm.parts} part(s), ${p.mm.concurrency} at a time, ${p.mm.batches} batch(es), map ${s(p.mm.tMap)}, write ${s(p.mm.tWrite)}` : ''));
     window.__result = { mode: d.mode, total: d.total, affected: d.affected, rypeRemoved: d.rypeRemoved, mmRemoved: d.mmRemoved, elapsedMs: d.elapsedMs, bytesFetched: d.bytesFetched, readType: radio('rt'), threshold: threshold(), hist: d.hist, histMm: d.histMm, files: d.files.map((f) => ({ name: f.name, size: f.size })) };
     window.__files = d.files; window.__phases = d.phases;
-  } else if (d.type === 'warn') { $('runStatus').textContent = d.msg; (window.__log ||= []).push(d.msg);
+  } else if (d.type === 'warn') { setRunStatus(d.msg); dev(d.msg);
   } else if (d.type === 'error') {
     setRunning(false);
-    const el = indexReady ? $('runStatus') : $('idxStatus');
     const hint = !indexReady && lastMount?.source === 'url' ? ` (index at ${lastMount.base}; is that server running and sending CORS headers?)` : '';
-    el.textContent = 'Error: ' + d.msg + hint; el.classList.add('err'); window.__error = d.msg;
-  } else if (d.type === 'log') { console.log('[rype]', d.msg); (window.__log ||= []).push(d.msg); }
+    if (indexReady) setRunStatus('Error: ' + d.msg, true); else setIdxStatus('Error: ' + d.msg + hint, true);
+    window.__error = d.msg;
+  } else if (d.type === 'log') { dev(d.msg); }
 }
 
 // Parallelism: N classifier workers, each a separate wasm instance holding one
@@ -411,10 +511,10 @@ function demoOptions() {
   if (qs.get('thr')) { $('thrOn').checked = true; $('thrRow').hidden = false; $('thr').value = qs.get('thr'); }
   if (qs.get('gzout')) $('gz').checked = true;
 }
-const setFiles = async (id, file) => { const dt = new DataTransfer(); dt.items.add(file); $(id).files = dt.files; $(id).dispatchEvent(new Event('change')); };
+function useLocalIndex() { $('useLocal').checked = true; $('srcLocal').hidden = false; $('localDetails').open = true; }
+renderPicks();
 if (qs.get('demo') === 'manual') {
-  demoOptions();
-  $('useLocal').checked = true; $('srcLocal').hidden = false; unmount('Pick a .ryxdi folder.');
+  demoOptions(); useLocalIndex(); unmount('Choose a .ryxdi folder.');
   $('idx').removeAttribute('webkitdirectory'); $('idx').removeAttribute('directory'); // automation cannot fill a directory picker
 } else if (qs.get('demo')) {
   (async () => {
@@ -424,15 +524,15 @@ if (qs.get('demo') === 'manual') {
     const get = async (rel, name) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`demo fetch ${rel}: ${r.status}`); return new File([await r.blob()], name || rel.split('/').pop()); };
     if (qs.get('src') === 'url') mountUrl(base + (qs.get('bundle') ? qs.get('bundle') + '/' : idx + '.ryxdi/'));
     else {
-      $('useLocal').checked = true; $('srcLocal').hidden = false;
+      useLocalIndex();
       const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
       mountLocal(await Promise.all(rels.map((r) => get(`${idx}.ryxdi/${r}`))));
     }
     if (qs.get('mm') === 'url') mmUrlOverride = base + (qs.get('mmi') || 'chm13_sr_parts.mmi');
     const gz = qs.get('gz') === 'multi' ? '.multi.fq.gz' : qs.get('gz') ? '.fq.gz' : '.fq';
     const stem = { chr1_slice: 'mixed', human: 'real_mix' }[idx] || 'wol_r1';
-    await setFiles('fq1', await get(qs.get('r1') || `${stem}${gz}`));
-    if (paired) await setFiles('fq2', await get(qs.get('r2') || `wol_r2${gz}`));
+    setFiles('fq1', await get(qs.get('r1') || `${stem}${gz}`));
+    if (paired) setFiles('fq2', await get(qs.get('r2') || `wol_r2${gz}`));
     if (qs.get('rt')) { await detecting; document.querySelector(`input[name=rt][value=${qs.get('rt')}]`).click(); }
     window.__start();
   })();
