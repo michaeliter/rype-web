@@ -53,9 +53,11 @@ class RecordReader {
   // Chunks are kept as a list and assembled once per batch: concatenating on
   // every stream chunk is quadratic (measured: ~200 s of memcpy on a 5.5 GB file).
   constructor(file) {
-    let s = file.stream();
+    this.chunks = []; this.len = 0; this.lines = 0; this.eof = false; this.bytesIn = 0;
+    // bytesIn counts file bytes before any gunzip, so progress is a fraction of file.size for gz input too.
+    let s = file.stream().pipeThrough(new TransformStream({ transform: (chunk, c) => { this.bytesIn += chunk.length; c.enqueue(chunk); } }));
     if (/\.gz$/i.test(file.name)) s = s.pipeThrough(gunzipStream());
-    this.reader = s.getReader(); this.chunks = []; this.len = 0; this.lines = 0; this.eof = false; this.bytesIn = 0; this.isGz = /\.gz$/i.test(file.name);
+    this.reader = s.getReader();
   }
   push(c) { this.chunks.push(c); this.len += c.length; for (let i = 0; i < c.length; i++) if (c[i] === 10) this.lines++; }
   async pull() {
@@ -63,7 +65,6 @@ class RecordReader {
     const { value, done } = await this.reader.read();
     RecordReader.tPull += performance.now() - t;
     if (done) { this.eof = true; const last = this.chunks[this.chunks.length - 1]; if (this.len && last[last.length - 1] !== 10) this.push(new Uint8Array([10])); return; }
-    if (!this.isGz) this.bytesIn += value.length;
     this.push(value);
   }
   complete() { return Math.floor(this.lines / 4); }
