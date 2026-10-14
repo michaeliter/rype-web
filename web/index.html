@@ -43,6 +43,7 @@
   .quiet summary::before { content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .2s; margin-right:2px; }
   .quiet[open] summary::before { transform:rotate(45deg); }
   .quiet .field { margin-top:12px; }
+  button.linkish { font:inherit; border:0; background:none; color:var(--peel); text-decoration:underline; cursor:pointer; padding:0; }
   .quiet label.block { display:block; color:var(--ink); font-weight:500; margin-bottom:6px; }
   .file { display:flex; gap:8px; align-items:center; }
   .file input[type=file] { flex:1; min-width:0; color:var(--soft); font-size:.9rem; }
@@ -101,13 +102,14 @@
 <main>
   <div class="mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#f2c13d"/><path d="M8 8l-2 1" stroke="#6e4521" stroke-width="2" stroke-linecap="round"/></svg>rype</div>
   <h1>Ripen your reads.</h1>
-  <p class="lede">Drop a FASTQ and this tab picks the human reads out of it. The index streams in from our server as it is needed; <b>your reads never leave your computer.</b></p>
+  <p class="lede">Drop a FASTQ and this tab picks the human reads out of it. The human index downloads once and stays in this browser; <b>your reads never leave your computer.</b></p>
 
   <ol class="stem">
     <li class="step" id="stepIndex" data-state="waiting">
       <svg class="fruit" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path class="stalk" d="M13 4v-3"/></svg>
       <h2>Index</h2>
       <p id="idxStatus" class="status">Loading the human index…</p>
+      <p id="cacheRow" class="quiet" hidden style="margin-top:6px">Stored in this browser: <span id="cacheBytes"></span>. <button id="clearCache" class="linkish">Remove</button></p>
       <details class="quiet" id="localDetails">
         <summary><input id="useLocal" type="checkbox" aria-label="Use a local index instead"> Use a local index instead</summary>
         <div id="srcLocal" hidden>
@@ -150,6 +152,7 @@
       </div>
       <div class="actions"><button id="run" class="primary" disabled>Ripen</button> <button id="cancel" class="secondary" hidden>Stop</button></div>
       <p id="runStatus" class="status" style="margin-top:12px"></p>
+      <p id="dlStatus" class="quiet" style="margin-top:4px"></p>
       <div id="barRow" hidden><progress id="bar" value="0" max="1"></progress><span id="pct">0%</span></div>
       <svg id="funnel" viewBox="0 -36 360 300" hidden aria-label="reads ripening through the filter">
         <path class="bowl" d="M50 40 H310 L196 132 V158 H164 V132 Z"/>
@@ -216,6 +219,7 @@ function mountLocal(files) {
 // indexes, so one URL configures the rype index and the second pass together.
 async function mountUrl(base) {
   if (!base.endsWith('/')) base += '/';
+  navigator.storage?.persist?.().catch(() => {}); // ask the browser not to evict the downloaded indexes
   let bundle = null;
   try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
   const bundleMm = bundle?.rype && bundle.minimap2 ? new URL(bundle.minimap2, base).href : null;
@@ -377,12 +381,18 @@ async function cancelRun() {
   if (!running) return;
   worker.terminate(); spawnWorker();
   indexReady = false; setRunning(false);
-  $('barRow').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
+  $('barRow').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true; $('dlStatus').textContent = '';
   setRunStatus('Cancelled.'); window.__cancelled = true;
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry('rype-out', { recursive: true }); } catch {} // partial outputs
   if (lastMount) mount('Reloading the index…', lastMount);
 }
 $('cancel').addEventListener('click', cancelRun);
+// Remove the downloaded indexes; the default index is then fetched again.
+$('clearCache').addEventListener('click', () => {
+  if (running) return;
+  indexReady = false; updateRun(); setStep('stepIndex', 'busy'); setIdxStatus('Removing downloaded indexes…'); $('cacheRow').hidden = true;
+  worker.postMessage({ type: 'clearCache' });
+});
 window.__cancel = cancelRun;
 
 // Report: one canvas (so it saves as a single PNG) with the human fraction, a bar of
@@ -452,9 +462,17 @@ const report = (() => {
 const friendlyStage = (s) => !s ? '' : s.startsWith('minimap2') ? `minimap2 is double-checking the survivors (${s.replace('minimap2 ', '')})` : 'rype is sorting reads';
 function onWorkerMessage(e) {
   const d = e.data;
-  if (d.type === 'mounted') {
+  if (d.type === 'download') {
+    const pct = d.total ? Math.floor(100 * d.done / d.total) : 0, done = d.done >= d.total;
+    if (d.what === 'index') setIdxStatus(done ? 'Opening the index…' : `Downloading the human index to this browser, ${pct}% of ${fmtBytes(d.total)}. It is kept for next time.`);
+    else $('dlStatus').textContent = done ? '' : `Fetching the minimap2 index in the background, ${pct}% of ${fmtBytes(d.total)}. It is kept for next time.`;
+  } else if (d.type === 'cacheCleared') {
+    if (!$('useLocal').checked) mountUrl(indexUrl); else unmount('Downloaded indexes removed.');
+  } else if (d.type === 'mounted') {
     indexReady = true; indexBuckets = d.buckets; setStep('stepIndex', 'ready'); updateRun();
-    setIdxStatus(d.source === 'url' && !$('useLocal').checked ? `Human index ready${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.` : `Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.`);
+    const mmNote = lastMount?.bundleMm ? ', with a minimap2 check for short reads' : '';
+    setIdxStatus(d.cached ? `Human index ready, stored in this browser${mmNote}.` : `Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${mmNote}.`);
+    $('cacheRow').hidden = !d.cacheBytes; $('cacheBytes').textContent = fmtBytes(d.cacheBytes || 0);
     dev('index mounted', { source: d.source, k: d.k, w: d.w, buckets: d.buckets, shards: d.shards, shardBytes: d.shardBytes, workers: d.workers });
   } else if (d.type === 'progress') {
     window.__progress = d;
@@ -463,7 +481,7 @@ function onWorkerMessage(e) {
     $('bar').value = frac; $('pct').textContent = `${Math.floor(frac * 100)}%`;
     console.debug('[rype] progress', d.stage, { total: d.total, affected: d.affected, elapsedS: +(d.elapsedMs / 1000).toFixed(1), bytesFetched: d.bytesFetched, phases: d.phases });
   } else if (d.type === 'done') {
-    setRunning(false); setStep('stepRun', 'done'); $('bar').value = 1; $('pct').textContent = '100%';
+    setRunning(false); setStep('stepRun', 'done'); $('bar').value = 1; $('pct').textContent = '100%'; $('dlStatus').textContent = '';
     setRunStatus(mode === 'classify' ? `Done: ${fmt(d.total)} reads classified.` : `Ripe. ${fmt(d.affected)} of ${fmt(d.total)} ${d.paired ? 'pairs' : 'reads'} were human; the rest is yours below.`);
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Save ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     if (d.hist) report.draw(d);

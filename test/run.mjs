@@ -55,7 +55,7 @@ try {
     if (c.cancel) { // cancel mid-run, then start again: the rerun must produce the full, correct result
       // true: after the first progress message, so batches are really in flight; string: once
       // a stage whose name starts with it reports progress, e.g. "minimap2" (stages are named "minimap2 parts 1,2 of 5"). ('Running…' is shown before the run is even posted.)
-      await page.waitForFunction((w) => { const p = window.__progress; return !!p && (w === true ? p.total > 0 : (p.stage || '').startsWith(w)); }, { timeout: 600000 }, c.cancel);
+      await page.waitForFunction((w) => { const p = window.__progress; return !!window.__error || (!!p && (w === true ? p.total > 0 : (p.stage || '').startsWith(w))); }, { timeout: 600000 }, c.cancel);
       const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); return { early, status: document.getElementById('runStatus').textContent, cancelHidden: document.getElementById('cancel').hidden, runDisabled: document.getElementById('run').disabled }; });
       if (st.early) logs.push('cancel: run already finished before cancel');
       if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));

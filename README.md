@@ -38,12 +38,22 @@ the histogram sums to the record count, that its bins at/above the threshold equ
 removals, and that minimap2's per-bin removals sum to its total and only fall in bins
 rype kept; the outputs stay byte-identical to the truth.
 
-Index sources (both read lazily by byte range, nothing copied into memory):
-- a local `.ryxdi` folder picked by the user (WORKERFS over File handles)
-- an HTTP(S) URL of a `.ryxdi` directory: the server must support `Range`
-  requests, expose `Content-Length`, and (cross-origin) send CORS headers.
-  Every classification pass streams essentially the whole index, so this is
-  for indexes of a few GB at most, not the 205 GB WoL3 w20 index.
+Index sources:
+- a local `.ryxdi` folder picked by the user (WORKERFS over File handles, read
+  lazily by byte range, nothing copied into memory)
+- an HTTP(S) URL of a `.ryxdi` directory (or bundle): downloaded once into the
+  browser's private storage (OPFS, `rype-cache/<sha1(url)>/`) and mounted from there
+  as local files on this and every later visit. Every classification pass streams
+  essentially the whole index, so fetching it by range on demand would re-download
+  the index for each batch of each run; the cache turns a 10 GB-per-run stream into
+  a one-time download. A bundle's minimap2 `.mmi` is fetched the same way, in the
+  background while rype's pass runs, the first time a short-read run needs it. The
+  download runs 4 × 32 MB ranges in parallel, commits in order and resumes from the
+  last committed byte after a reload; a changed `ETag`/`Last-Modified` or size
+  restarts it. The server must support `Range` requests, expose `Content-Length`,
+  and (cross-origin) send CORS headers. The page asks for persistent storage and
+  checks `navigator.storage.estimate()` before downloading; the Index card shows
+  what is stored and a Remove link that clears it.
 
 Outputs stream to the browser's private storage (OPFS) as they are produced,
 so output size is not bounded by memory; optional gzip.
@@ -171,8 +181,8 @@ filtered by rype alone and the Filter card says so. Pieces:
 - `src/mm.c` + `third_party/minimap2` (copied from the miint submodule, built by
   `build_mm2.sh` with the same SSE2-via-SIMD128 flags miint uses) -> `web/mm_filter.wasm`.
 - `web/mm_worker.js`: one worker per index part; the part is mounted as its own file
-  from a byte range of the `.mmi` (local File or URL) via `fsutil.js`, so a 9 GB
-  single-file index streams without ever being stored.
+  from a byte range of the `.mmi` (picked or cached File) via `fsutil.js`, so a 9 GB
+  single-file index is never copied into memory.
 - A single-part `.mmi` cannot be used: minimap2 loads a part whole and wasm32 caps a
   worker at 4 GB. Build the index multi-part (`-I` counts bases, not bytes):
   `minimap2 -x sr -t 10 -I 600M -d chm13_sr_parts.mmi chm13.fa.gz` -> 5 parts of

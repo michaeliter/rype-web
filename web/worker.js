@@ -12,10 +12,31 @@ const ready = createRypeMask({ print: () => {}, printErr: (s) => post('log', { m
 // ---------------------------------------------------------------- classifier pool
 let pool = [];
 
-// Spawn N classifiers and mount the index in each. Local File objects clone
-// cheaply across postMessage; a URL source is re-opened by every classifier.
+// A URL index is downloaded once into browser storage (fsutil cacheRemote) and then
+// mounted as local files: rype streams its whole index once per batch, so range
+// requests would refetch it for every batch of every run. Progress is posted as 'download'.
+async function cachedRyxdi(base, what) {
+  if (!base.endsWith('/')) base += '/';
+  const r = await fetch(base + 'manifest.toml'); if (!r.ok) throw new Error(`${r.status} fetching manifest.toml`);
+  const manifest = await r.text();
+  const shards = [...manifest.matchAll(/^shard_id\s*=\s*(\d+)/gm)].map((m) => `inverted/shard.${m[1]}.parquet`);
+  if (!shards.length) throw new Error('manifest.toml lists no shards');
+  const paths = ['buckets.parquet', ...shards];
+  const sizes = await Promise.all(paths.map((p) => remoteInfo(base + p).then((i) => i.size)));
+  const total = sizes.reduce((a, b) => a + b, 0);
+  const files = []; let before = 0;
+  for (let i = 0; i < paths.length; i++) {
+    files.push(await cacheRemote(base + paths[i], (done) => post('download', { what, done: before + done, total })));
+    before += sizes[i];
+  }
+  return { files: [new File([manifest], 'manifest.toml'), ...files], paths: ['manifest.toml', ...paths] };
+}
+
+// Spawn N classifiers and mount the index in each. Local File objects (picked or
+// cached) clone cheaply across postMessage.
 async function mountIndex(msg) {
   for (const w of pool) w.terminate();
+  if (msg.source === 'url') msg = { ...msg, source: 'local', cached: true, ...(await cachedRyxdi(msg.base, 'index')) };
   const n = Math.max(1, msg.workers | 0);
   pool = Array.from({ length: n }, () => new Worker('classifier.js?v=' + Date.now()));
   const infos = await Promise.all(pool.map((w) => new Promise((resolve, reject) => {
@@ -23,7 +44,7 @@ async function mountIndex(msg) {
     w.onerror = (e) => reject(new Error('classifier failed to start: ' + (e.message || e)));
     w.postMessage(w === pool[pool.length - 1] ? msg : { ...msg, simulateFail: null }); // the test hook fails one worker only (the first to be dispatched)
   })));
-  return { ...infos[0], workers: n };
+  return { ...infos[0], workers: n, cached: !!msg.cached, cacheBytes: await cacheUsage() };
 }
 
 // ---------------------------------------------------------------- FASTQ input
@@ -291,7 +312,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, dir, b
 
 // ---------------------------------------------------------------- the run
 async function run(msg) {
-  const { mode, r1, r2, gzipOut, mm, mmWorkers } = msg;
+  const { mode, r1, r2, gzipOut, mmWorkers } = msg; let mm = msg.mm;
   const base = r1.name.replace(/\.(fastq|fq)(\.gz)?$/i, '').replace(/[._-]?R?1$/i, '');
   const ext = gzipOut ? '.gz' : '';
   const dir = await outputDir();
@@ -305,11 +326,19 @@ async function run(msg) {
   const conc = twoPass ? Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length)) : 0;
   const groups = []; if (twoPass) for (let i = 0; i < mm.parts.length; i += conc) groups.push(mm.parts.map((_, k) => k).slice(i, i + conc));
   const steps = 1 + groups.length;
+  // A URL minimap2 index is downloaded into browser storage while pass 1 runs (network
+  // and CPU overlap); the sweeps then read it as a local file.
+  let mmReady = null;
+  if (twoPass && mm.source === 'url') {
+    mmReady = cacheRemote(mm.url, (done, total) => post('download', { what: 'minimap2', done, total })).then((file) => ({ ...mm, source: 'local', file }));
+    mmReady.catch(() => {}); // reported where it is awaited; do not also surface as unhandled
+  }
   const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
     post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
   }
+  if (mmReady) mm = await mmReady;
   // Pass 2: minimap2 over the T2T parts, `mmWorkers` parts at a time; each
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.
   let inputs = pass1.files, bins = pass1.bins, stale = [], mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
@@ -337,6 +366,7 @@ self.onmessage = async (e) => {
     await ready;
     if (msg.type === 'mount') post('mounted', await mountIndex(msg));
     else if (msg.type === 'run') await run(msg);
+    else if (msg.type === 'clearCache') { for (const w of pool) w.terminate(); pool = []; await cacheClear(); post('cacheCleared'); }
   } catch (err) {
     post('error', { msg: String((err && err.message) || err) });
   }
