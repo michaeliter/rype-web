@@ -1,0 +1,20 @@
+[
+  { "name": "perf-community-sr20M-paired-cascade-4w", "timeoutSec": 7200,
+    "query": "mode=filter&workers=4&mmWorkers=4",
+    "requires": ["~/rype-work/mock-community/sr20M_R1.fastq.gz", "~/rype-work/references/human.ryxdi/manifest.toml", "~/rype-work/references/test_indices/chm13_sr_parts.mmi.parts.json"],
+    "uploads": {
+      "idx": ["~/rype-work/references/human.ryxdi/manifest.toml", "~/rype-work/references/human.ryxdi/buckets.parquet", "~/rype-work/references/human.ryxdi/inverted/shard.0.parquet"],
+      "fq1": "~/rype-work/mock-community/sr20M_R1.fastq.gz",
+      "fq2": "~/rype-work/mock-community/sr20M_R2.fastq.gz",
+      "mmFiles": ["~/rype-work/references/test_indices/chm13_sr_parts.mmi", "~/rype-work/references/test_indices/chm13_sr_parts.mmi.parts.json"]
+    },
+    "expect": { "total": 20000000, "readType": "short", "threshold": 0 } },
+  { "name": "perf-community-lr1M-4w", "timeoutSec": 7200,
+    "query": "mode=filter&workers=4&gzout=1",
+    "requires": ["~/rype-work/mock-community/lr1M.fastq.gz", "~/rype-work/references/human.ryxdi/manifest.toml"],
+    "uploads": {
+      "idx": ["~/rype-work/references/human.ryxdi/manifest.toml", "~/rype-work/references/human.ryxdi/buckets.parquet", "~/rype-work/references/human.ryxdi/inverted/shard.0.parquet"],
+      "fq1": "~/rype-work/mock-community/lr1M.fastq.gz"
+    },
+    "expect": { "total": 1000000, "readType": "long", "threshold": 0.05 } }
+]
