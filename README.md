@@ -191,6 +191,11 @@ filtered by rype alone and the Filter card says so. Pieces:
 - `worker.js` runs the sweeps: rype output -> parts 1..c -> survivors -> parts c+1..2c ...
   (`c` = `?mmWorkers=`, default half the rype worker count, ~3 GB per part worker).
   Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
+- Intermediates between passes are spooled as one OPFS file per batch (`Spool` in
+  `worker.js`), and the pass that reads them deletes each part as soon as it has been
+  consumed, so only about one copy of the surviving reads is on disk at a time. For a
+  20M-pair sample that is ~13.5 GB plus the cached indexes; the earlier whole-file
+  intermediates kept two copies (~38 GB) and ran this laptop out of disk.
 - Verified against native minimap2 on `testdata/sr_mix_r{1,2}.fq` (5000 simulated T2T
   chr22 pairs + 9000 WoL pairs): identical hit set per part (`test_mm.mjs`) and the
   two-pass browser output equals the complement of the native rype + minimap2 truth.
