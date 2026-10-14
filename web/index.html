@@ -79,7 +79,9 @@
   #funnel .bowl { fill:var(--paper); stroke:var(--rule); stroke-width:2; }
   #funnel .stalk { stroke:var(--peel); stroke-width:1.5; stroke-linecap:round; }
   #funnel .spots circle { fill:var(--peel); }
-  progress { width:100%; max-width:380px; height:5px; margin-top:10px; appearance:none; -webkit-appearance:none; border:0; background:var(--rule); border-radius:999px; overflow:hidden; display:block; }
+  #barRow { display:flex; align-items:center; gap:12px; max-width:440px; margin-top:10px; }
+  #pct { font-variant-numeric:tabular-nums; color:var(--soft); font-size:.95rem; min-width:3.5em; }
+  progress { flex:1; height:5px; appearance:none; -webkit-appearance:none; border:0; background:var(--rule); border-radius:999px; overflow:hidden; display:block; }
   progress::-webkit-progress-bar { background:var(--rule); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
   #downloads { margin-top:14px; }
   a.dl { display:inline-flex; align-items:center; gap:8px; margin:0 12px 8px 0; color:var(--ink); font-weight:600; text-decoration:none; border-bottom:2px solid var(--ripe); padding-bottom:1px; }
@@ -148,7 +150,7 @@
       </div>
       <div class="actions"><button id="run" class="primary" disabled>Ripen</button> <button id="cancel" class="secondary" hidden>Stop</button></div>
       <p id="runStatus" class="status" style="margin-top:12px"></p>
-      <progress id="bar" value="0" max="1" hidden></progress>
+      <div id="barRow" hidden><progress id="bar" value="0" max="1"></progress><span id="pct">0%</span></div>
       <svg id="funnel" viewBox="0 -36 360 300" hidden aria-label="reads ripening through the filter">
         <path class="bowl" d="M50 40 H310 L196 132 V158 H164 V132 Z"/>
         <g id="bananas"></g>
@@ -182,7 +184,7 @@ function spawnWorker() {
   worker.onmessage = onWorkerMessage;
 }
 spawnWorker();
-let indexReady = false, running = false, mmUrlOverride = null; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
+let indexReady = false, running = false, mmUrlOverride = null, indexBuckets = 1; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
 const fmt = (n) => n.toLocaleString();
 const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
 const radio = (name) => document.querySelector(`input[name=${name}]:checked`)?.value;
@@ -326,7 +328,7 @@ async function startRun() {
   try { await detecting; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
   catch (e) { setRunStatus('Error: ' + e.message, true); window.__error = e.message; return; }
   setRunning(true);
-  $('downloads').innerHTML = ''; $('bar').hidden = false; $('bar').value = 0; $('reportCard').hidden = true;
+  $('downloads').innerHTML = ''; $('barRow').hidden = false; $('bar').value = 0; $('pct').textContent = '0%'; $('reportCard').hidden = true;
   setRunStatus('Ripening…');
   worker.postMessage({ type: 'run', mode, r1: r1(), r2: r2(), threshold: threshold(),
                        batchBytes: batchBytes(), gzipOut: $('gz').checked, mm, mmWorkers: mmWorkerCount() });
@@ -375,7 +377,7 @@ async function cancelRun() {
   if (!running) return;
   worker.terminate(); spawnWorker();
   indexReady = false; setRunning(false);
-  $('bar').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
+  $('barRow').hidden = true; $('downloads').innerHTML = ''; $('reportCard').hidden = true;
   setRunStatus('Cancelled.'); window.__cancelled = true;
   try { const root = await navigator.storage.getDirectory(); await root.removeEntry('rype-out', { recursive: true }); } catch {} // partial outputs
   if (lastMount) mount('Reloading the index…', lastMount);
@@ -413,7 +415,7 @@ const report = (() => {
     for (const [n, col, name] of segs) { if (name === 'minimap2' && !twoPass) continue; ctx.fillStyle = col; ctx.fillRect(x, by + bh + 10, 10, 10); ctx.fillStyle = c.ink; const t = `${name} ${fmt(n)} (${pct(n, total)})`; ctx.fillText(t, x + 15, by + bh + 19); x += ctx.measureText(t).width + 34; }
     // histogram of best containment score: bin 0 = no shared minimizer, then 101 bins of 0.01
     const hx = 56, hy = 180, hw = W - 80, hh = 200, gap = 52, binW = (hw - gap) / 101, maxN = Math.max(1, ...d.hist), yOf = (n) => hh * Math.log10(1 + n) / Math.log10(1 + maxN);
-    ctx.font = `600 13px ${sans}`; ctx.fillStyle = c.ink; ctx.fillText('Best containment score per ' + unit.replace(/s$/, ''), hx, hy - 8);
+    ctx.font = `600 13px ${sans}`; ctx.fillStyle = c.ink; ctx.fillText((indexBuckets > 1 ? `Best containment score per ${unit.replace(/s$/, '')} across ${fmt(indexBuckets)} buckets` : `Containment score per ${unit.replace(/s$/, '')}`), hx, hy - 8);
     ctx.strokeStyle = c.rule; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx, hy + hh + .5); ctx.lineTo(hx + hw, hy + hh + .5); ctx.stroke();
     ctx.font = `500 10px ${sans}`; ctx.fillStyle = c.soft; ctx.textAlign = 'right';
     for (let p = 1; 10 ** p <= maxN; p++) { const y = Math.round(hy + hh - yOf(10 ** p)) + .5; ctx.beginPath(); ctx.moveTo(hx, y); ctx.lineTo(hx + hw, y); ctx.stroke(); ctx.fillText(p >= 6 ? 10 ** (p - 6) + 'M' : p >= 3 ? 10 ** (p - 3) + 'k' : String(10 ** p), hx - 6, y + 3); }
@@ -451,16 +453,17 @@ const friendlyStage = (s) => !s ? '' : s.startsWith('minimap2') ? `minimap2 is d
 function onWorkerMessage(e) {
   const d = e.data;
   if (d.type === 'mounted') {
-    indexReady = true; setStep('stepIndex', 'ready'); updateRun();
+    indexReady = true; indexBuckets = d.buckets; setStep('stepIndex', 'ready'); updateRun();
     setIdxStatus(d.source === 'url' && !$('useLocal').checked ? `Human index ready${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.` : `Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${lastMount?.bundleMm ? ', with a minimap2 check for short reads' : ''}.`);
     dev('index mounted', { source: d.source, k: d.k, w: d.w, buckets: d.buckets, shards: d.shards, shardBytes: d.shardBytes, workers: d.workers });
   } else if (d.type === 'progress') {
     window.__progress = d;
-    setRunStatus(`${friendlyStage(d.stage)}: ${fmt(d.total)} ${r2() ? 'pairs' : 'reads'} so far, ${fmt(d.affected)} ${mode === 'classify' ? 'with hits' : 'human'}.`);
-    if (d.bytesIn) $('bar').value = d.bytesIn / d.fileBytes; else $('bar').removeAttribute('value');
+    const frac = d.fileBytes ? Math.min(1, d.bytesIn / d.fileBytes) : 0, stepOf = d.steps > 1 ? `Step ${d.step} of ${d.steps}, ` : '';
+    setRunStatus(`${stepOf}${friendlyStage(d.stage)}: ${fmt(d.total)} ${r2() ? 'pairs' : 'reads'} so far, ${fmt(d.affected)} ${mode === 'classify' ? 'with hits' : 'human'}.`);
+    $('bar').value = frac; $('pct').textContent = `${Math.floor(frac * 100)}%`;
     console.debug('[rype] progress', d.stage, { total: d.total, affected: d.affected, elapsedS: +(d.elapsedMs / 1000).toFixed(1), bytesFetched: d.bytesFetched, phases: d.phases });
   } else if (d.type === 'done') {
-    setRunning(false); setStep('stepRun', 'done'); $('bar').value = 1;
+    setRunning(false); setStep('stepRun', 'done'); $('bar').value = 1; $('pct').textContent = '100%';
     setRunStatus(mode === 'classify' ? `Done: ${fmt(d.total)} reads classified.` : `Ripe. ${fmt(d.affected)} of ${fmt(d.total)} ${d.paired ? 'pairs' : 'reads'} were human; the rest is yours below.`);
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Save ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     if (d.hist) report.draw(d);

@@ -120,7 +120,7 @@ async function outputDir() {
 
 // ---------------------------------------------------------------- the run
 // Pass 1: rype over the classifier pool. Writes `names` into `dir`; returns the files and stats.
-async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, names, t0, stage }) {
+async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, names, t0, stage, step, steps }) {
   const in1 = new RecordReader(r1), in2 = r2 ? new RecordReader(r2) : null;
   const sinks = names.map((n) => new Sink(n, gzipOut));
   for (const s of sinks) await s.open(dir);
@@ -131,7 +131,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   const fetched = new Map(); // classifier -> its cumulative index bytes fetched
   const bytesFetched = () => [...fetched.values()].reduce((a, b) => a + b, 0);
   const phases = () => ({ read: RecordReader.tPull, batch: tTake, classify: tClassify, write: tWrite, batches, workers: pool.length });
-  const progress = () => post('progress', { stage, total, affected, bytesIn: in1.bytesIn, fileBytes: r1.size, bytesFetched: bytesFetched(), elapsedMs: performance.now() - t0, phases: phases() });
+  const progress = () => post('progress', { stage, step, steps, total, affected, bytesIn: in1.bytesIn, fileBytes: r1.size, bytesFetched: bytesFetched(), elapsedMs: performance.now() - t0, phases: phases() });
 
   // Dispatch: batches go to idle classifiers as they are read; results are
   // written strictly in sequence so output order matches input order.
@@ -227,7 +227,7 @@ function dropHits(buf, hits) {
 // overlaps the workers' mapping of the current one.
 // bins: one byte per input record (its report histogram bin); histMm[bin] is incremented
 // for each record removed, and the survivors' bins come back in order for the next sweep.
-async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, dir, batchBytes, t0, stage, onStats }) {
+async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, dir, batchBytes, t0, stage, step, steps, onStats }) {
   const workers = group.map(() => new Worker('mm_worker.js?v=' + Date.now()));
   let failure = null; const waiters = []; const wake = () => { while (waiters.length) waiters.shift()(); };
   const results = new Map(); // worker -> result of the batch in flight
@@ -271,7 +271,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, dir, b
       if (batch.b2) await sinks[1].write(dropHits(batch.b2, any));
       tWrite += performance.now() - t; batches++;
       onStats({ total, removed, tMap, tWrite, batches, bytesFetched: [...results.values()].reduce((a, r) => a + r.bytesFetched, 0) });
-      post('progress', { stage, total, affected: removed, bytesIn: in1.bytesIn, fileBytes: inputs[0].size, bytesFetched: FsStats.bytesFetched, elapsedMs: performance.now() - t0 });
+      post('progress', { stage, step, steps, total, affected: removed, bytesIn: in1.bytesIn, fileBytes: inputs[0].size, bytesFetched: FsStats.bytesFetched, elapsedMs: performance.now() - t0 });
     };
     let inflight = null;
     for (;;) {
@@ -300,22 +300,24 @@ async function run(msg) {
     : [`${base}.masked${r2 ? '.R1' : ''}.fastq${ext}`, ...(r2 ? [`${base}.masked.R2.fastq${ext}`] : [])];
   const twoPass = mode === 'filter' && mm && mm.parts.length;
   const midNames = (tag) => [`${base}.${tag}${r2 ? '.R1' : ''}.fastq`, ...(r2 ? [`${base}.${tag}.R2.fastq`] : [])];
-  const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', names: twoPass ? midNames('rype') : finalNames, gzipOut: twoPass ? false : gzipOut });
+  // Pass 2 sweeps `conc` parts at a time; each sweep is one progress step, as is pass 1.
+  const conc = twoPass ? Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length)) : 0;
+  const groups = []; if (twoPass) for (let i = 0; i < mm.parts.length; i += conc) groups.push(mm.parts.map((_, k) => k).slice(i, i + conc));
+  const steps = 1 + groups.length;
+  const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
     post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
   }
   // Pass 2: minimap2 over the T2T parts, `mmWorkers` parts at a time; each
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.
-  const conc = Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length));
-  const groups = []; for (let i = 0; i < mm.parts.length; i += conc) groups.push(mm.parts.map((_, k) => k).slice(i, i + conc));
   let inputs = pass1.files, bins = pass1.bins, stale = [], mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
   const histMm = new Uint32Array(102); // per report bin, records minimap2 removed
   for (let g = 0; g < groups.length; g++) {
     const last = g === groups.length - 1;
     const stage = `minimap2 parts ${groups[g].map((k) => k + 1).join(',')} of ${mm.parts.length}`;
     const sweepStats = {};
-    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, dir, batchBytes: msg.batchBytes, t0, stage, onStats: (s) => Object.assign(sweepStats, s) });
+    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s) });
     mmRemoved += res.removed; mmStats.tMap += sweepStats.tMap || 0; mmStats.tWrite += sweepStats.tWrite || 0; mmStats.batches += sweepStats.batches || 0; mmStats.bytesFetched += sweepStats.bytesFetched || 0;
     for (const f of stale) { try { await dir.removeEntry(f.name); } catch {} }
     stale = inputs; inputs = res.files; bins = res.bins;
