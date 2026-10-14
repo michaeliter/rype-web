@@ -73,10 +73,11 @@ so output size is not bounded by memory; optional gzip.
 The default index is a bundle directory: one that holds `index.json` with
 `{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }` next to both indexes (plus the
 `.parts.json` beside the `.mmi`), so one URL configures the rype index and the second
-pass together. `DEFAULT_INDEX_URL` in `web/index.html` is
-`http://127.0.0.1:8766/human-host-filter/` for now; `?index=<url>` overrides it. The
-human bundle is staged, hard-linked, at `~/rype-work/staging/human-host-filter/`
-(10 GB, README.txt inside lists the Apache CORS headers the host needs);
+pass together. `DEFAULT_INDEX_URL` in `web/index.html` is the published bundle,
+`https://ftp.microbio.me/pub/rype/host-filter/v1/` (Range + CORS verified 2026-10-14);
+`?index=<url>` overrides it, e.g. `?index=../testdata/bundle_wol_chm13/` or a local copy
+served with `node serve.mjs 8766 ~/rype-work/staging` as `http://127.0.0.1:8766/human-host-filter/`.
+The human bundle's staging copy is at `~/rype-work/staging/human-host-filter/` (10 GB);
 `testdata/bundle_wol_chm13/` is a small symlinked one for tests.
 Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
 single-end file next). Cancel (shown while a job runs) terminates the coordinator worker

@@ -171,8 +171,8 @@
 
 <script>
 // The index served to everyone: a bundle directory (index.json beside the rype .ryxdi and the
-// multi-part minimap2 .mmi, see README). Localhost until it is published; ?index=<url> overrides.
-const DEFAULT_INDEX_URL = 'http://127.0.0.1:8766/human-host-filter/';
+// multi-part minimap2 .mmi, see README). ?index=<url> overrides it.
+const DEFAULT_INDEX_URL = 'https://ftp.microbio.me/pub/rype/host-filter/v1/';
 const $ = (id) => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const mode = qs.get('mode') === 'classify' ? 'classify' : 'filter'; // classify is kept for the harness only; the page is a host filter
@@ -525,7 +525,7 @@ if (qs.get('demo') === 'manual') {
     demoOptions();
     const base = new URL('../testdata/', location.href).href;
     const get = async (rel, name) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`demo fetch ${rel}: ${r.status}`); return new File([await r.blob()], name || rel.split('/').pop()); };
-    if (qs.get('src') === 'url') mountUrl(base + (qs.get('bundle') ? qs.get('bundle') + '/' : idx + '.ryxdi/'));
+    if (qs.get('src') === 'url') mountUrl(qs.get('bundle') ? new URL(qs.get('bundle') + '/', base).href : base + idx + '.ryxdi/'); // bundle= may be absolute
     else {
       useLocalIndex();
       const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
