@@ -8,7 +8,9 @@ wasm32-unknown-emscripten, a C shim (`src/mask.c`) that parses FASTQ and calls
 workers but has no control on the page; the harness reaches it with `?mode=classify`.
 
 The page is a dedicated host filter, laid out as a stem of three fruit (Index, Reads,
-Ripen) that turn from green to yellow as each step is satisfied; while a job runs an SVG
+RYpen) that turn from green to yellow as each step is satisfied. The hero is a canvas
+field of drifting colour (`sky` in index.html, 64 px wide and CSS-blurred, cut on the bias)
+that ripens from green to gold with the run's progress; while a job runs an SVG
 funnel (anime.js, vendored in `web/vendor/`) ripens green bananas into spotted yellow
 ones. Type: Fraunces for headings, Instrument Sans for everything else (Google Fonts, with
 system fallbacks). Index parameters, byte counts and per-phase timings are not shown; they
