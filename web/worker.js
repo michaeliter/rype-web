@@ -112,22 +112,48 @@ class RecordReader {
 }
 
 // ---------------------------------------------------------------- output sinks
+// Parallel gzip for final outputs: each batch is compressed by one of a few gzip workers
+// and the members are appended in input order (concatenated gzip members are one valid
+// gzip file; our own reader and every common tool accept that). A single CompressionStream
+// on this thread dominated the run: 257 s of 299 s on 1M long reads.
+const GZIP_WORKERS = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+class GzipPool {
+  constructor(n) { this.idle = []; this.waiters = []; this.all = Array.from({ length: n }, () => new Worker('gzip_worker.js?v=' + Date.now())); this.idle.push(...this.all); }
+  async compress(u8) { // transfers u8's buffer; resolves to the gzip member
+    while (!this.idle.length) await new Promise((r) => this.waiters.push(r));
+    const w = this.idle.pop();
+    return new Promise((resolve, reject) => {
+      const free = () => { this.idle.push(w); const f = this.waiters.shift(); if (f) f(); };
+      w.onmessage = (e) => { free(); e.data.error ? reject(new Error('gzip: ' + e.data.error)) : resolve(new Uint8Array(e.data.buf)); };
+      w.onerror = (e) => reject(new Error('gzip worker crashed: ' + (e.message || e)));
+      w.postMessage({ buf: u8.buffer, off: u8.byteOffset, len: u8.length }, [u8.buffer]);
+    });
+  }
+  close() { for (const w of this.all) w.terminate(); }
+}
+let gzPool = null; // shared by a run's gzip sinks, closed when the run ends
+const gzipPool = () => gzPool || (gzPool = new GzipPool(GZIP_WORKERS));
+
 // Streams bytes to OPFS (disk-backed, unbounded) with in-memory fallback; gzip optional.
 class Sink {
-  constructor(name, gzip) { this.name = name; this.gzip = gzip; this.parts = []; this.pos = 0; }
+  constructor(name, gzip) { this.name = name; this.gzip = gzip; this.parts = []; this.pos = 0; this.commits = []; this.tail = Promise.resolve(); }
   async open(dir) {
     if (dir) { this.handle = await dir.getFileHandle(this.name, { create: true }); this.access = await this.handle.createSyncAccessHandle(); }
-    if (this.gzip) {
-      const cs = new CompressionStream('gzip');
-      this.writer = cs.writable.getWriter();
-      const reader = cs.readable.getReader();
-      this.pump = (async () => { for (;;) { const { value, done } = await reader.read(); if (done) return; this.raw(value); } })();
-    }
+    if (this.gzip) this.pool = gzipPool();
   }
   raw(u8) { if (this.access) { this.access.write(u8, { at: this.pos }); this.pos += u8.length; } else this.parts.push(u8); }
-  async write(u8) { if (!u8.length) return; if (this.writer) await this.writer.write(u8); else this.raw(u8); }
+  async write(u8) {
+    if (!u8.length) return;
+    if (!this.pool) return this.raw(u8);
+    // Compress now, commit in order behind the earlier batches; at most one batch per gzip
+    // worker is in flight, so memory stays bounded and a failure surfaces at the next write.
+    const member = this.pool.compress(u8);
+    this.tail = this.tail.then(async () => this.raw(await member)); this.tail.catch(() => {}); // awaited below and in close()
+    this.commits.push(this.tail);
+    if (this.commits.length >= GZIP_WORKERS) await this.commits.shift();
+  }
   async close() {
-    if (this.writer) { await this.writer.close(); await this.pump; }
+    await this.tail;
     if (this.access) { this.access.flush(); this.access.close(); return await this.handle.getFile(); }
     return new File(this.parts, this.name);
   }
@@ -388,6 +414,7 @@ async function run(msg) {
   if (!pool.length) await mountIndex(lastMount); // released at the end of the previous two-pass run
   const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, spool: spoolOf(twoPass), gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
+    if (gzPool) { gzPool.close(); gzPool = null; }
     post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
   }
@@ -408,6 +435,7 @@ async function run(msg) {
     inputs = res.files; bins = res.bins; // the sweep removed its input parts as it read them
   }
   if (io) io.close();
+  if (gzPool) { gzPool.close(); gzPool = null; }
   post('done', { mode, total: pass1.total, affected: pass1.affected + mmRemoved, rypeRemoved: pass1.affected, mmRemoved, elapsedMs: performance.now() - t0,
     bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, histMm: Array.from(histMm), threshold: msg.threshold,
     phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc } } });

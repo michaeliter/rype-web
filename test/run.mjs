@@ -5,6 +5,7 @@
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +46,7 @@ try {
       if (c.clear) { // the × beside a picker empties it without a reload; re-upload afterwards
         const el = await page.$('#' + c.clear);
         await page.click(`button[data-clear=${c.clear}]`);
+        await page.waitForFunction((id) => document.getElementById(id).files.length === 0, { timeout: 2000 }, c.clear).catch(() => {}); // the click handler runs asynchronously
         const n = await el.evaluate((e) => e.files.length); if (n) logs.push(`clear: #${c.clear} still has ${n} file(s)`);
         await el.uploadFile(...[].concat(c.uploads[c.clear]).map(abs)); await el.evaluate((e) => e.dispatchEvent(new Event('change', { bubbles: true })));
       }
@@ -76,11 +78,14 @@ try {
         if (!check) { files.push({ name: f.name, size: f.size }); continue; }
         const buf = new Uint8Array(await f.arrayBuffer());
         const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf))).map((b) => b.toString(16).padStart(2, '0')).join('');
-        files.push({ name: f.name, size: f.size, sha256: hash, text: f.size < 50e6 && !/\.gz$/.test(f.name) ? new TextDecoder().decode(buf) : null });
+        const small = f.size < 50e6, gz = /\.gz$/.test(f.name);
+        files.push({ name: f.name, size: f.size, sha256: hash, text: small && !gz ? new TextDecoder().decode(buf) : null,
+          b64: small && gz ? btoa(Array.from(buf, (b) => String.fromCharCode(b)).join('')) : null }); // gunzipped in Node (multi-member)
       }
       return { ...window.__result, phases: window.__phases, files, log: window.__log || [] };
     }, !!(c.expect && c.expect.files));
     await page.close();
+    for (const f of r.files || []) if (f.b64) { f.text = zlib.gunzipSync(Buffer.from(f.b64, 'base64')).toString(); delete f.b64; } // all members, as a reader would see it
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     const problems = [];
     if (r.error) problems.push(`error: ${r.error}`);
