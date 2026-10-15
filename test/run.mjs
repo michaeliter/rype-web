@@ -63,16 +63,17 @@ try {
     }
     try { await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 }); }
     catch (e) { const st = await page.evaluate(() => [document.getElementById('idxStatus').textContent, document.getElementById('runStatus').textContent].join(' | ')); failed++; console.log(`FAIL ${c.name}: timed out; status: ${st}; console: ${logs.slice(-5).join(' | ')}`); await page.close(); continue; }
-    const r = await page.evaluate(async () => {
+    const r = await page.evaluate(async (check) => { // hash only when the case checks outputs: a multi-GB file cannot be read whole
       if (window.__error) return { error: String(window.__error) };
       const files = [];
       for (const f of window.__files) {
+        if (!check) { files.push({ name: f.name, size: f.size }); continue; }
         const buf = new Uint8Array(await f.arrayBuffer());
         const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf))).map((b) => b.toString(16).padStart(2, '0')).join('');
         files.push({ name: f.name, size: f.size, sha256: hash, text: f.size < 50e6 && !/\.gz$/.test(f.name) ? new TextDecoder().decode(buf) : null });
       }
       return { ...window.__result, phases: window.__phases, files, log: window.__log || [] };
-    });
+    }, !!(c.expect && c.expect.files));
     await page.close();
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     const problems = [];
