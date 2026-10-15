@@ -189,7 +189,12 @@ filtered by rype alone and the Filter card says so. Pieces:
   <= 1.96 GiB, ~2.7 GiB heap each when loaded. Then `python3 tools/mmi_parts.py x.mmi`
   writes `x.mmi.parts.json` (part byte ranges), which must sit beside the index.
 - `worker.js` runs the sweeps: rype output -> parts 1..c -> survivors -> parts c+1..2c ...
-  (`c` = `?mmWorkers=`, default half the rype worker count, ~3 GB per part worker).
+  (`c` = `?mmWorkers=`, default half the rype worker count, ~3 GB per part worker; on
+  Chromium a `navigator.deviceMemory` below 8 GB lowers it, but the value is clamped to 8
+  so larger machines cannot be told apart). The classifiers (~1.8 GB each) are released
+  before the first sweep and remounted at the next run, so peak memory is the larger
+  phase, not the sum: ~8 GB rype, then ~3 GB per resident part (measured on 20M pairs
+  with 4 + 4 workers: 20 GB before the release, see below for after).
   Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
 - Intermediates between passes are spooled as one OPFS file per batch (`Spool` in
   `worker.js`), and the pass that reads them deletes each part as soon as it has been

@@ -10,7 +10,7 @@ const post = (type, data = {}) => self.postMessage({ type, ...data });
 const ready = createRypeMask({ print: () => {}, printErr: (s) => post('log', { msg: s }) }).then((m) => { M = m; });
 
 // ---------------------------------------------------------------- classifier pool
-let pool = [];
+let pool = [], lastMount = null; // lastMount: to bring the classifiers back after a two-pass run released them
 
 // A URL index is downloaded once into browser storage (fsutil cacheRemote) and then
 // mounted as local files: rype streams its whole index once per batch, so range
@@ -37,6 +37,7 @@ async function cachedRyxdi(base, what) {
 async function mountIndex(msg) {
   for (const w of pool) w.terminate();
   if (msg.source === 'url') msg = { ...msg, source: 'local', cached: true, ...(await cachedRyxdi(msg.base, 'index')) };
+  lastMount = msg;
   const n = Math.max(1, msg.workers | 0);
   pool = Array.from({ length: n }, () => new Worker('classifier.js?v=' + Date.now()));
   const infos = await Promise.all(pool.map((w) => new Promise((resolve, reject) => {
@@ -384,11 +385,15 @@ async function run(msg) {
     mmReady = cacheRemote(mm.url, (done, total) => post('download', { what: 'minimap2', done, total })).then((file) => ({ ...mm, source: 'local', file }));
     mmReady.catch(() => {}); // reported where it is awaited; do not also surface as unhandled
   }
+  if (!pool.length) await mountIndex(lastMount); // released at the end of the previous two-pass run
   const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, spool: spoolOf(twoPass), gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
     post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
   }
+  // The classifiers (~1.8 GB each) are not needed again this run: release them so the
+  // sweeps' part workers (~2.7 GB each) do not sit on top of them. Next run remounts.
+  for (const w of pool) w.terminate(); pool = [];
   if (mmReady) mm = await mmReady;
   // Pass 2: minimap2 over the T2T parts, `mmWorkers` parts at a time; each
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.

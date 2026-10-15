@@ -61,7 +61,13 @@ try {
       if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));
       await page.evaluate(() => { window.__result = null; window.__start(); });
     }
-    try { await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 }); }
+    try {
+      await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 });
+      if (c.rerun) { // a second job in the same page: the worker must bring back what it released after a two-pass run
+        await page.evaluate(() => { window.__result = null; window.__start(); });
+        await page.waitForFunction('window.__result || window.__error', { timeout: (c.timeoutSec || 300) * 1000, polling: 500 });
+      }
+    }
     catch (e) { const st = await page.evaluate(() => [document.getElementById('idxStatus').textContent, document.getElementById('runStatus').textContent].join(' | ')); failed++; console.log(`FAIL ${c.name}: timed out; status: ${st}; console: ${logs.slice(-5).join(' | ')}`); await page.close(); continue; }
     const r = await page.evaluate(async (check) => { // hash only when the case checks outputs: a multi-GB file cannot be read whole
       if (window.__error) return { error: String(window.__error) };
