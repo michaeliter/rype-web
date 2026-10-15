@@ -24,6 +24,7 @@ class ChunkedSource {
     for (let pos = position; pos < end;) {
       const i = Math.floor(pos / this.chunk), c = this.chunkAt(i);
       const off = pos - i * this.chunk, n = Math.min(c.length - off, end - pos);
+      if (!(n > 0)) throw new Error(`index read stalled: position ${pos} of ${this.size} (offset ${this.offset}), chunk ${i} has ${c.length} bytes, need ${end - pos}`);
       buffer.set(c.subarray(off, off + n), offset + (pos - position));
       pos += n;
     }

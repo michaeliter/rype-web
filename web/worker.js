@@ -136,9 +136,9 @@ const gzipPool = () => gzPool || (gzPool = new GzipPool(GZIP_WORKERS));
 
 // Streams bytes to OPFS (disk-backed, unbounded) with in-memory fallback; gzip optional.
 class Sink {
-  constructor(name, gzip) { this.name = name; this.gzip = gzip; this.parts = []; this.pos = 0; this.commits = []; this.tail = Promise.resolve(); }
+  constructor(name, gzip, storeAs) { this.name = name; this.gzip = gzip; this.storeAs = storeAs || name; this.parts = []; this.pos = 0; this.commits = []; this.tail = Promise.resolve(); }
   async open(dir) {
-    if (dir) { this.handle = await dir.getFileHandle(this.name, { create: true }); this.access = await this.handle.createSyncAccessHandle(); }
+    if (dir) { this.handle = await dir.getFileHandle(this.storeAs, { create: true }); this.access = await this.handle.createSyncAccessHandle(); }
     if (this.gzip) this.pool = gzipPool();
   }
   raw(u8) { if (this.access) { this.access.write(u8, { at: this.pos }); this.pos += u8.length; } else this.parts.push(u8); }
@@ -154,7 +154,7 @@ class Sink {
   }
   async close() {
     await this.tail;
-    if (this.access) { this.access.flush(); this.access.close(); return await this.handle.getFile(); }
+    if (this.access) { this.access.flush(); this.access.close(); const f = await this.handle.getFile(); return this.storeAs === this.name ? f : new File([f], this.name); }
     return new File(this.parts, this.name);
   }
 }
@@ -325,26 +325,45 @@ function dropHits(buf, hits) {
 // overlaps the workers' mapping of the current one.
 // bins: one byte per input record (its report histogram bin); histMm[bin] is incremented
 // for each record removed, and the survivors' bins come back in order for the next sweep.
-async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool, dir, batchBytes, t0, stage, step, steps, onStats }) {
+async function mmSweep({ inputs, bins, histMm, mm, group, names, storeAs, gzipOut, spool, dir, batchBytes, t0, stage, step, steps, onStats, simulateFail }) {
   const tSweep0 = performance.now();
-  const workers = group.map(() => new Worker('mm_worker.js?v=' + Date.now()));
-  let failure = null; const waiters = []; const wake = () => { while (waiters.length) waiters.shift()(); };
+  group = [...group]; const dropped = []; // parts shed by a memory fallback; the caller sweeps them later
+  let workers = [], failure = null; const waiters = []; const wake = () => { while (waiters.length) waiters.shift()(); };
   const results = new Map(); // worker -> result of the batch in flight
-  const infos = await Promise.all(workers.map((w, i) => new Promise((resolve, reject) => {
-    w.onmessage = (e) => { const d = e.data; if (d.type === 'mounted') resolve(d); else if (d.type === 'error') reject(new Error(d.msg)); else if (d.type === 'log') post('log', d); };
-    w.onerror = (e) => reject(new Error('minimap2 worker failed to start: ' + (e.message || e)));
-    const part = mm.parts[group[i]];
-    w.postMessage(mm.source === 'url' ? { type: 'mount', source: 'url', url: mm.url, part, chunkBytes: mm.chunkBytes } : { type: 'mount', source: 'local', file: mm.file, part });
-  })));
-  post('log', { msg: `${stage}: parts loaded, ${infos.map((i) => `${i.nSeq} seqs/${(i.heapBytes / 2 ** 30).toFixed(2)} GiB`).join(', ')}` });
-  for (const w of workers) {
-    w.onmessage = (e) => { const d = e.data; if (d.type === 'result') results.set(w, d); else if (d.type === 'error') failure = new Error(`${stage}: ${d.msg}`); else if (d.type === 'log') post('log', d); wake(); };
-    w.onerror = (e) => { failure = new Error(`${stage}: minimap2 worker crashed: ` + (e.message || e)); wake(); };
-  }
+  const spawn = async () => {
+    workers = group.map(() => new Worker('mm_worker.js?v=' + Date.now()));
+    const infos = await Promise.all(workers.map((w, i) => new Promise((resolve, reject) => {
+      w.onmessage = (e) => { const d = e.data; if (d.type === 'mounted') resolve(d); else if (d.type === 'error') reject(new Error(d.msg)); else if (d.type === 'log') post('log', d); };
+      w.onerror = (e) => reject(new Error('minimap2 worker failed to start: ' + (e.message || e)));
+      const part = mm.parts[group[i]], hook = i === workers.length - 1 ? simulateFail : null; // the test hook fails one worker only
+      w.postMessage(mm.source === 'url' ? { type: 'mount', source: 'url', url: mm.url, part, chunkBytes: mm.chunkBytes, simulateFail: hook } : { type: 'mount', source: 'local', file: mm.file, part, simulateFail: hook });
+    })));
+    post('log', { msg: `${stage}: parts loaded, ${infos.map((i) => `${i.nSeq} seqs/${(i.heapBytes / 2 ** 30).toFixed(2)} GiB`).join(', ')}` });
+    for (const w of workers) {
+      w.onmessage = (e) => { const d = e.data; if (d.type === 'result') results.set(w, d); else if (d.type === 'error') failure = new Error(`${stage}: ${d.msg}`); else if (d.type === 'log') post('log', d); wake(); };
+      w.onerror = (e) => { failure = new Error(`${stage}: minimap2 worker crashed: ` + (e.message || e)); wake(); };
+    }
+  };
+  // Memory fallback: a part worker that traps, cannot grow its heap or crashes takes
+  // the sweep down to half as many parts at a time. The shed parts are swept afterwards
+  // over this sweep's output (filtering is idempotent, so records already screened by
+  // them before the failure are merely screened twice). The batch in flight is resent.
+  const shrink = async (e) => {
+    const oom = /memory|abort|enlarge|crashed|unreachable|RuntimeError|OOM/i.test(String(e && e.message || e));
+    if (!oom) throw e;
+    if (group.length < 2) throw new Error(`minimap2 index part ${group[0] + 1} does not fit in a browser worker (4 GB of memory; ${e.message}). Use an index built with more, smaller parts.`);
+    for (const w of workers) w.terminate();
+    const keep = Math.floor(group.length / 2);
+    dropped.unshift(...group.slice(keep)); group = group.slice(0, keep);
+    post('warn', { msg: `A minimap2 part worker ran out of memory (${e.message}); continuing with ${keep} part${keep > 1 ? 's' : ''} at a time.` });
+    failure = null; results.clear(); simulateFail = null; // the test hook fires once
+  };
+  const spawnOrShrink = async () => { for (;;) { try { await spawn(); return; } catch (e) { await shrink(e); } } };
+  await spawnOrShrink();
   const until = async (cond) => { while (!cond()) { if (failure) throw failure; await new Promise((r) => waiters.push(r)); } if (failure) throw failure; };
   try {
     const in1 = new RecordReader(inputs[0]), in2 = inputs[1] ? new RecordReader(inputs[1]) : null;
-    const sinks = names.map((n) => spool ? new Spool(spool, n) : new Sink(n, gzipOut));
+    const sinks = names.map((n, i) => spool ? new Spool(spool, n) : new Sink(n, gzipOut, storeAs && storeAs[i]));
     for (const s of sinks) await s.open(dir);
     let total = 0, removed = 0, tMap = 0, tWrite = 0, batches = 0, seq = 0;
     const tLoad = performance.now() - tSweep0; let tRead = 0, tSend = 0, tWait = 0, tFilter = 0; // wall ms per phase of this sweep
@@ -362,9 +381,13 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool,
       return { b1: in1.take(n), b2: in2 ? in2.take(n) : null, n };
     };
     const send = (batch) => { const t = performance.now(); results.clear(); for (const w of workers) w.postMessage({ type: 'hits', seq, b1: batch.b1.buffer, b2: batch.b2 ? batch.b2.buffer : null }); seq++; tSend += performance.now() - t; };
+    const resend = (batch) => { results.clear(); for (const w of workers) w.postMessage({ type: 'hits', seq: seq - 1, b1: batch.b1.buffer, b2: batch.b2 ? batch.b2.buffer : null }); };
     const finish = async (batch) => {
       let t = performance.now();
-      await until(() => results.size === workers.length);
+      for (;;) {
+        try { await until(() => results.size === workers.length); break; }
+        catch (e) { await shrink(e); await spawnOrShrink(); resend(batch); }
+      }
       tWait += performance.now() - t; t = performance.now();
       const any = new Uint8Array(batch.n); let ms = 0;
       for (const r of results.values()) { ms = Math.max(ms, r.ms); for (let i = 0; i < batch.n; i++) any[i] |= r.hits[i]; }
@@ -391,7 +414,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool,
     const files = [];
     for (const s of sinks) files.push(await s.close());
     stats(); // final figures, also for a sweep that saw no batches
-    return { files, total, removed, bins: outBins.subarray(0, nOut) };
+    return { files, total, removed, bins: outBins.subarray(0, nOut), swept: group, dropped };
   } finally {
     for (const w of workers) w.terminate();
   }
@@ -412,9 +435,10 @@ async function run(msg) {
   const spoolOf = (yes) => yes ? (io || true) : null;
   const midNames = (tag) => [`${base}.${tag}${r2 ? '.R1' : ''}.fastq`, ...(r2 ? [`${base}.${tag}.R2.fastq`] : [])];
   // Pass 2 sweeps `conc` parts at a time; each sweep is one progress step, as is pass 1.
-  const conc = twoPass ? Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length)) : 0;
-  const groups = []; if (twoPass) for (let i = 0; i < mm.parts.length; i += conc) groups.push(mm.parts.map((_, k) => k).slice(i, i + conc));
-  const steps = 1 + groups.length;
+  let conc = twoPass ? Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length)) : 0;
+  const regroup = (parts, n) => { const out = []; for (let i = 0; i < parts.length; i += n) out.push(parts.slice(i, i + n)); return out; };
+  const groups = twoPass ? regroup(mm.parts.map((_, k) => k), conc) : [];
+  let steps = 1 + groups.length;
   // A URL minimap2 index is downloaded into browser storage while pass 1 runs (network
   // and CPU overlap); the sweeps then read it as a local file.
   let mmReady = null;
@@ -440,13 +464,18 @@ async function run(msg) {
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.
   let inputs = pass1.files, bins = pass1.bins, mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
   const histMm = new Uint32Array(102); // per report bin, records minimap2 removed
+  let retries = 0; // a final sweep re-run after a memory fallback reads the previous final output, so it is stored under another name
   for (let g = 0; g < groups.length; g++) {
     const last = g === groups.length - 1;
     const stage = `minimap2 parts ${groups[g].map((k) => k + 1).join(',')} of ${mm.parts.length}`;
     const sweepStats = {};
-    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, spool: spoolOf(!last), dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s) });
+    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, spool: spoolOf(!last), dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s), simulateFail: g === 0 ? msg.mmSimulateFail : null, storeAs: last && retries ? finalNames.map((n) => `${n}.retry${retries}`) : null });
     mmRemoved += res.removed; mmStats.tMap += sweepStats.tMap || 0; mmStats.tWrite += sweepStats.tWrite || 0; mmStats.batches += sweepStats.batches || 0; mmStats.bytesFetched += sweepStats.bytesFetched || 0;
     inputs = res.files; bins = res.bins; // the sweep removed its input parts as it read them
+    if (res.dropped.length) { // memory fallback: the shed parts and the rest go on at the reduced width
+      conc = res.swept.length; mmStats.fallbacks = (mmStats.fallbacks || 0) + 1; if (last) retries++;
+      groups.splice(g + 1, groups.length, ...regroup([...res.dropped, ...groups.slice(g + 1).flat()], conc)); steps = 1 + groups.length;
+    }
     walls[`sweep${g + 1}`] = sweepStats.wall; // per-phase wall ms inside this sweep
     post('log', { msg: `${stage}: ${JSON.stringify(Object.fromEntries(Object.entries(sweepStats.wall).map(([k, v]) => [k, Math.round(v / 1000)])))} s` });
   }

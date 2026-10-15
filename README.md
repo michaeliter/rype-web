@@ -162,7 +162,8 @@ One 640 MB batch, same slice, sequential runs:
   per worker, so ~8 GB total); `?workers=N&batchMB=N` to override. The classify figure
   in the breakdown is summed worker CPU time, so it can exceed the elapsed time.
   Defaults also scale down with `navigator.deviceMemory` (Chromium only, clamped to 8, so
-  it only ever shrinks the count: 4 GB -> 2 workers, 2 GB -> 1 worker with 128 MB batches).
+  it only ever shrinks the count below 8 GB: 4 GB -> 1 worker, 2 GB -> 1 worker with
+  128 MB batches; 8 GB reports the same as 64 GB and gets the full default).
   If a classifier traps or cannot grow its heap mid-run it hands its batch back, is
   terminated, and the batch is retried on the remaining workers (status line shows a
   warning); the last worker failing, or a crash that loses the batch, ends the run with a
@@ -192,15 +193,37 @@ filtered by rype alone and the Filter card says so. Pieces:
   `minimap2 -x sr -t 10 -I 600M -d chm13_sr_parts.mmi chm13.fa.gz` -> 5 parts of
   <= 1.96 GiB, ~2.7 GiB heap each when loaded. Then `python3 tools/mmi_parts.py x.mmi`
   writes `x.mmi.parts.json` (part byte ranges), which must sit beside the index.
+  Parts must also stay under ~100M distinct minimizers (the build log prints the count per
+  part): minimap2 keeps each of the 2^14 hash buckets in a khash table that doubles once a
+  bucket passes 6,308 keys, so a part just over that average needs twice the hash memory.
+  A balanced 4-part CHM13 build (2026-10-15, chromosomes regrouped to 773-783 Mb each,
+  95.8-105.3M minimizers) measured 2.77 GiB for three parts and >4 GiB for the fourth,
+  which cannot load; an 8-part build was slower than 5 parts (528 s vs 499 s on 20M pairs,
+  more per-read seeding repeated per part). 5 parts stays. Allocation failure in a worker
+  aborts (`-sABORTING_MALLOC=1` in `emcc_flags.sh`) so the coordinator's memory fallback
+  sees an error; with the default NULL return, minimap2's unchecked mallocs made the load
+  spin forever.
 - `worker.js` runs the sweeps: rype output -> parts 1..c -> survivors -> parts c+1..2c ...
-  (`c` = `?mmWorkers=`, default half the rype worker count, ~3 GB per part worker; on
-  Chromium a `navigator.deviceMemory` below 8 GB lowers it, but the value is clamped to 8
-  so larger machines cannot be told apart). The classifiers (~1.8 GB each) are released
-  before the first sweep and remounted at the next run, so peak memory is the larger
-  phase, not the sum (measured on 20M pairs with 4 + 4 workers, largest Chrome process
-  sampled every 10 s: 20 GB before the release, 13 GB after, 12.3 GB during rype, 13.0 GB
-  during the 4-part sweep, 5.4 GB during the 1-part sweep).
-  Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
+  (`c` = `?mmWorkers=`, default the rype worker count, so 4 x 4 on a 4-core-plus machine,
+  ~3 GB per part worker; on Chromium a `navigator.deviceMemory` below 8 GB lowers both
+  counts, but the value is clamped to 8 so 8 GB and larger machines all get the default).
+  The classifiers (~1.8 GB each) are released before the first sweep and remounted at the
+  next run, so peak memory is the larger phase, not the sum (measured on 20M pairs with
+  4 + 4 workers, largest Chrome process sampled every 10 s: 20 GB before the release,
+  13 GB after, 12.3 GB during rype, 13.0 GB during the 4-part sweep, 5.4 GB during the
+  1-part sweep). Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
+- Memory fallback (4 x 4 -> 4 x 2 -> 4 x 1): a part worker that traps, cannot grow its
+  wasm heap or crashes makes the sweep terminate its workers, keep the first half of its
+  parts, resend the batch in flight and carry on; the shed parts and all later ones are
+  regrouped at the new width and swept afterwards over this sweep's output (filtering is
+  idempotent, so records the shed parts had already screened are screened twice). If that
+  happens in the final sweep, the re-run final sweep stores its output under another OPFS
+  name (`<name>.retryN`, served under the real name) because it reads the previous final
+  file. The page records the width of the run in progress in `localStorage`
+  (`rype.attempt`, cleared on done/error/cancel/pagehide); finding it at load means the tab
+  died mid-run (Chrome's out-of-memory kill, which no code in the page can observe), and
+  sets `rype.mmCap` to half that width for later runs. `?mmSimulateFail=<batch>` makes one
+  part worker fail on that batch (harness cases `minimap2-oom-fallback-*`).
 - Intermediates between passes are spooled as one OPFS file per batch (`Spool` in
   `worker.js`), and the pass that reads them deletes each part as soon as it has been
   consumed, so only about one copy of the surviving reads is on disk at a time. For a

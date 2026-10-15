@@ -6,6 +6,7 @@
 importScripts('mm_filter.js', 'fsutil.js');
 
 let M = null;
+let simulateFail = null; // ?mmSimulateFail=<seq>: this worker fails that batch with a memory error (tests the coordinator's fallback)
 const post = (type, data = {}, transfer = []) => self.postMessage({ type, ...data }, transfer);
 const ready = createMmFilter({ print: () => {}, printErr: (s) => post('log', { msg: s }) }).then((m) => { M = m; });
 const lastError = () => M.ccall('mm_last_error', 'string', [], []);
@@ -33,8 +34,11 @@ self.onmessage = async (e) => {
   const msg = e.data;
   try {
     await ready;
-    if (msg.type === 'mount') post('mounted', await mountPart(msg));
-    else if (msg.type === 'hits') hits(msg);
+    if (msg.type === 'mount') { simulateFail = msg.simulateFail != null ? parseInt(msg.simulateFail, 10) : null; post('mounted', await mountPart(msg)); }
+    else if (msg.type === 'hits') {
+      if (simulateFail !== null && msg.seq === simulateFail) { simulateFail = null; throw new WebAssembly.RuntimeError('simulated out-of-memory'); }
+      hits(msg);
+    }
   } catch (err) {
     post('error', { msg: String((err && err.message) || err) });
   }
