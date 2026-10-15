@@ -326,6 +326,7 @@ function dropHits(buf, hits) {
 // bins: one byte per input record (its report histogram bin); histMm[bin] is incremented
 // for each record removed, and the survivors' bins come back in order for the next sweep.
 async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool, dir, batchBytes, t0, stage, step, steps, onStats }) {
+  const tSweep0 = performance.now();
   const workers = group.map(() => new Worker('mm_worker.js?v=' + Date.now()));
   let failure = null; const waiters = []; const wake = () => { while (waiters.length) waiters.shift()(); };
   const results = new Map(); // worker -> result of the batch in flight
@@ -346,29 +347,38 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool,
     const sinks = names.map((n) => spool ? new Spool(spool, n) : new Sink(n, gzipOut));
     for (const s of sinks) await s.open(dir);
     let total = 0, removed = 0, tMap = 0, tWrite = 0, batches = 0, seq = 0;
+    const tLoad = performance.now() - tSweep0; let tRead = 0, tSend = 0, tWait = 0, tFilter = 0; // wall ms per phase of this sweep
+    const wall = () => ({ load: tLoad, read: tRead, send: tSend, wait: tWait, filter: tFilter, write: tWrite, sweep: performance.now() - tSweep0 });
+    const stats = () => onStats({ total, removed, tMap, tWrite, batches, bytesFetched: [...results.values()].reduce((a, r) => a + r.bytesFetched, 0), wall: wall() });
     const outBins = new Uint8Array(bins.length); let nOut = 0;
     const readBatch = async () => {
+      const t = performance.now(); try { return await readBatch0(); } finally { tRead += performance.now() - t; }
+    };
+    const readBatch0 = async () => {
       await in1.fillBytes(batchBytes);
       let n = in1.complete();
       if (in2) { await in2.fillRecords(n); n = Math.min(n, in2.complete()); }
       if (n === 0) { if (in1.len || (in2 && in2.len)) throw new Error('truncated FASTQ record at end of intermediate file'); return null; }
       return { b1: in1.take(n), b2: in2 ? in2.take(n) : null, n };
     };
-    const send = (batch) => { results.clear(); for (const w of workers) w.postMessage({ type: 'hits', seq, b1: batch.b1.buffer, b2: batch.b2 ? batch.b2.buffer : null }); seq++; };
+    const send = (batch) => { const t = performance.now(); results.clear(); for (const w of workers) w.postMessage({ type: 'hits', seq, b1: batch.b1.buffer, b2: batch.b2 ? batch.b2.buffer : null }); seq++; tSend += performance.now() - t; };
     const finish = async (batch) => {
+      let t = performance.now();
       await until(() => results.size === workers.length);
+      tWait += performance.now() - t; t = performance.now();
       const any = new Uint8Array(batch.n); let ms = 0;
       for (const r of results.values()) { ms = Math.max(ms, r.ms); for (let i = 0; i < batch.n; i++) any[i] |= r.hits[i]; }
       tMap += ms;
-      const t = performance.now();
       let kept = 0;
       if (total + batch.n > bins.length) throw new Error(`internal: ${total + batch.n} records in the minimap2 pass but ${bins.length} rype survivors`);
       for (let i = 0; i < batch.n; i++) { const b = bins[total + i]; if (any[i]) histMm[b]++; else { outBins[nOut++] = b; kept++; } }
       total += batch.n; removed += batch.n - kept;
-      await sinks[0].write(dropHits(batch.b1, any));
-      if (batch.b2) await sinks[1].write(dropHits(batch.b2, any));
+      const o1 = dropHits(batch.b1, any), o2 = batch.b2 ? dropHits(batch.b2, any) : null;
+      tFilter += performance.now() - t; t = performance.now();
+      await sinks[0].write(o1);
+      if (o2) await sinks[1].write(o2);
       tWrite += performance.now() - t; batches++;
-      onStats({ total, removed, tMap, tWrite, batches, bytesFetched: [...results.values()].reduce((a, r) => a + r.bytesFetched, 0) });
+      stats();
       post('progress', { stage, step, steps, total, affected: removed, bytesIn: in1.bytesIn, fileBytes: inputs[0].size, bytesFetched: FsStats.bytesFetched, elapsedMs: performance.now() - t0 });
     };
     let inflight = null;
@@ -380,6 +390,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool,
     }
     const files = [];
     for (const s of sinks) files.push(await s.close());
+    stats(); // final figures, also for a sweep that saw no batches
     return { files, total, removed, bins: outBins.subarray(0, nOut) };
   } finally {
     for (const w of workers) w.terminate();
@@ -412,6 +423,7 @@ async function run(msg) {
     mmReady.catch(() => {}); // reported where it is awaited; do not also surface as unhandled
   }
   if (!pool.length) await mountIndex(lastMount); // released at the end of the previous two-pass run
+  const tRun0 = performance.now(), walls = {};
   const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, spool: spoolOf(twoPass), gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
     if (gzPool) { gzPool.close(); gzPool = null; }
@@ -421,7 +433,9 @@ async function run(msg) {
   // The classifiers (~1.8 GB each) are not needed again this run: release them so the
   // sweeps' part workers (~2.7 GB each) do not sit on top of them. Next run remounts.
   for (const w of pool) w.terminate(); pool = [];
+  walls.pass1 = performance.now() - tRun0; let t = performance.now();
   if (mmReady) mm = await mmReady;
+  walls.mmDownloadWait = performance.now() - t;
   // Pass 2: minimap2 over the T2T parts, `mmWorkers` parts at a time; each
   // sweep reads the previous sweep's survivors, so the data shrinks as it goes.
   let inputs = pass1.files, bins = pass1.bins, mmRemoved = 0, mmStats = { tMap: 0, tWrite: 0, batches: 0, bytesFetched: 0 };
@@ -433,12 +447,15 @@ async function run(msg) {
     const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, spool: spoolOf(!last), dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s) });
     mmRemoved += res.removed; mmStats.tMap += sweepStats.tMap || 0; mmStats.tWrite += sweepStats.tWrite || 0; mmStats.batches += sweepStats.batches || 0; mmStats.bytesFetched += sweepStats.bytesFetched || 0;
     inputs = res.files; bins = res.bins; // the sweep removed its input parts as it read them
+    walls[`sweep${g + 1}`] = sweepStats.wall; // per-phase wall ms inside this sweep
+    post('log', { msg: `${stage}: ${JSON.stringify(Object.fromEntries(Object.entries(sweepStats.wall).map(([k, v]) => [k, Math.round(v / 1000)])))} s` });
   }
+  walls.total = performance.now() - tRun0;
   if (io) io.close();
   if (gzPool) { gzPool.close(); gzPool = null; }
   post('done', { mode, total: pass1.total, affected: pass1.affected + mmRemoved, rypeRemoved: pass1.affected, mmRemoved, elapsedMs: performance.now() - t0,
     bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, histMm: Array.from(histMm), threshold: msg.threshold,
-    phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc } } });
+    phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc, walls } } });
 }
 
 self.onerror = (e) => post('error', { msg: 'uncaught in worker: ' + (e.message || e) });
