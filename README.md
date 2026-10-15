@@ -193,8 +193,9 @@ filtered by rype alone and the Filter card says so. Pieces:
   Chromium a `navigator.deviceMemory` below 8 GB lowers it, but the value is clamped to 8
   so larger machines cannot be told apart). The classifiers (~1.8 GB each) are released
   before the first sweep and remounted at the next run, so peak memory is the larger
-  phase, not the sum: ~8 GB rype, then ~3 GB per resident part (measured on 20M pairs
-  with 4 + 4 workers: 20 GB before the release, see below for after).
+  phase, not the sum (measured on 20M pairs with 4 + 4 workers, largest Chrome process
+  sampled every 10 s: 20 GB before the release, 13 GB after, 12.3 GB during rype, 13.0 GB
+  during the 4-part sweep, 5.4 GB during the 1-part sweep).
   Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
 - Intermediates between passes are spooled as one OPFS file per batch (`Spool` in
   `worker.js`), and the pass that reads them deletes each part as soon as it has been
