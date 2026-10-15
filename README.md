@@ -56,7 +56,11 @@ Index sources:
   what is stored and a Remove link that clears it.
 
 Outputs stream to the browser's private storage (OPFS) as they are produced,
-so output size is not bounded by memory; optional gzip.
+so output size is not bounded by memory; optional gzip. Gzip output is compressed
+one batch at a time by a pool of up to four `web/gzip_worker.js` workers and written
+as concatenated members in input order (a single CompressionStream on the coordinator
+took 257 s of a 299 s run on 1M long reads; with the pool the same run takes 104 s,
+45 s of it in the writer).
 - Gzip input is inflated by zlib inside the wasm module (`src/gz.c`), not by
   `DecompressionStream`, because the browser API rejects multi-member gzip
   ("Junk found after end of compressed data") and real FASTQ gz files from
