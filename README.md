@@ -195,7 +195,12 @@ filtered by rype alone and the Filter card says so. Pieces:
   `worker.js`), and the pass that reads them deletes each part as soon as it has been
   consumed, so only about one copy of the surviving reads is on disk at a time. For a
   20M-pair sample that is ~13.5 GB plus the cached indexes; the earlier whole-file
-  intermediates kept two copies (~38 GB) and ran this laptop out of disk.
+  intermediates kept two copies (~38 GB) and ran this laptop out of disk. The parts are
+  written and removed by `web/spool_worker.js`, not the coordinator: storage promises
+  (`getFileHandle`, `createSyncAccessHandle`, `createWritable`) do not get serviced in a
+  worker whose event loop is saturated with 256 MB batch traffic from four classifiers
+  (a 20M-pair run sat on its first part for two hours; small inputs never show it), so
+  the coordinator transfers each batch to the idle spool worker and gets a `File` back.
 - Verified against native minimap2 on `testdata/sr_mix_r{1,2}.fq` (5000 simulated T2T
   chr22 pairs + 9000 WoL pairs): identical hit set per part (`test_mm.mjs`) and the
   two-pass browser output equals the complement of the native rype + minimap2 truth.

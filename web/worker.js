@@ -134,33 +134,47 @@ class Sink {
 // Intermediate output between passes: one file per batch, so the pass that reads it
 // can delete each part as soon as it has been consumed. (A whole-file intermediate
 // kept two full copies of the sample on disk while a sweep ran: the one being read
-// and the one being written.) Without OPFS the parts stay in memory and are dropped
-// the same way. Quacks like a File for RecordReader: name, size, stream().
+// and the one being written.) The files are written and removed by spool_worker.js,
+// because storage promises do not get serviced in this worker while a run saturates
+// it (see that file); here a part is just a File. Without OPFS the parts stay in
+// memory and are dropped the same way. Quacks like a File for RecordReader.
+class SpoolIO {
+  constructor(dir) {
+    this.w = new Worker('spool_worker.js?v=' + Date.now()); this.seq = 0; this.pending = new Map();
+    this.w.onmessage = (e) => { const d = e.data, p = this.pending.get(d.seq); if (!p) return; this.pending.delete(d.seq); d.type === 'error' ? p.reject(new Error('spool: ' + d.msg)) : p.resolve(d.file); };
+    this.w.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error('spool worker crashed: ' + (e.message || e))); this.pending.clear(); };
+    this.w.postMessage({ type: 'open', dir });
+  }
+  write(name, u8) { // transfers u8's buffer; resolves to the written part as a File
+    const seq = this.seq++;
+    return new Promise((resolve, reject) => { this.pending.set(seq, { resolve, reject }); this.w.postMessage({ type: 'write', seq, name, buf: u8.buffer, off: u8.byteOffset, len: u8.length }, [u8.buffer]); });
+  }
+  remove(name) { this.w.postMessage({ type: 'remove', name }); }
+  close() { this.w.terminate(); }
+}
 class Spool {
-  constructor(dir, name) { this.dir = dir; this.name = name; this.parts = []; this.size = 0; }
+  constructor(io, name) { this.io = io === true ? null : io; this.name = name; this.parts = []; this.size = 0; }
   async open() {}
   async write(u8) {
     if (!u8.length) return;
     this.size += u8.length;
-    if (!this.dir) return this.parts.push(u8);
-    const name = `${this.name}.${this.parts.length}`;
-    const a = await (await this.dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
-    a.write(u8, { at: 0 }); a.flush(); a.close(); this.parts.push(name);
+    this.parts.push(this.io ? await this.io.write(`${this.name}.${this.parts.length}`, u8) : u8);
   }
   async close() { return this; }
-  stream() { // the parts in order; each is removed once fully read
-    const { dir, parts } = this; let i = 0, rd = null;
+  stream() { // the parts in order; each is dropped once fully read
+    const { io, parts, name } = this; let i = 0, rd = null;
     return new ReadableStream({
       pull: async (ctrl) => {
         for (;;) {
           if (!rd) {
             if (i >= parts.length) return ctrl.close();
-            if (!dir) { const p = parts[i]; parts[i++] = null; return ctrl.enqueue(p); }
-            rd = (await (await dir.getFileHandle(parts[i])).getFile()).stream().getReader();
+            const p = parts[i]; parts[i] = null;
+            if (!io) { i++; return ctrl.enqueue(p); }
+            rd = p.stream().getReader();
           }
           const { value, done } = await rd.read();
           if (!done) return ctrl.enqueue(value);
-          rd = null; await dir.removeEntry(parts[i++]);
+          rd = null; io.remove(`${name}.${i++}`);
         }
       },
     });
@@ -179,7 +193,7 @@ async function outputDir() {
 // Pass 1: rype over the classifier pool. Writes `names` into `dir`; returns the files and stats.
 async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, names, spool, t0, stage, step, steps }) {
   const in1 = new RecordReader(r1), in2 = r2 ? new RecordReader(r2) : null;
-  const sinks = names.map((n) => spool ? new Spool(dir, n) : new Sink(n, gzipOut));
+  const sinks = names.map((n) => spool ? new Spool(spool, n) : new Sink(n, gzipOut));
   for (const s of sinks) await s.open(dir);
   if (mode === 'classify') await sinks[0].write(new TextEncoder().encode('read_id\tbucket_name\tscore\n'));
 
@@ -302,7 +316,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, gzipOut, spool,
   const until = async (cond) => { while (!cond()) { if (failure) throw failure; await new Promise((r) => waiters.push(r)); } if (failure) throw failure; };
   try {
     const in1 = new RecordReader(inputs[0]), in2 = inputs[1] ? new RecordReader(inputs[1]) : null;
-    const sinks = names.map((n) => spool ? new Spool(dir, n) : new Sink(n, gzipOut));
+    const sinks = names.map((n) => spool ? new Spool(spool, n) : new Sink(n, gzipOut));
     for (const s of sinks) await s.open(dir);
     let total = 0, removed = 0, tMap = 0, tWrite = 0, batches = 0, seq = 0;
     const outBins = new Uint8Array(bins.length); let nOut = 0;
@@ -356,6 +370,8 @@ async function run(msg) {
     ? [`${base}.classified.tsv${ext}`]
     : [`${base}.masked${r2 ? '.R1' : ''}.fastq${ext}`, ...(r2 ? [`${base}.masked.R2.fastq${ext}`] : [])];
   const twoPass = mode === 'filter' && mm && mm.parts.length;
+  const io = twoPass && dir ? new SpoolIO(dir) : null; // intermediates; without OPFS the parts stay in memory
+  const spoolOf = (yes) => yes ? (io || true) : null;
   const midNames = (tag) => [`${base}.${tag}${r2 ? '.R1' : ''}.fastq`, ...(r2 ? [`${base}.${tag}.R2.fastq`] : [])];
   // Pass 2 sweeps `conc` parts at a time; each sweep is one progress step, as is pass 1.
   const conc = twoPass ? Math.max(1, Math.min(mmWorkers | 0 || 1, mm.parts.length)) : 0;
@@ -368,7 +384,7 @@ async function run(msg) {
     mmReady = cacheRemote(mm.url, (done, total) => post('download', { what: 'minimap2', done, total })).then((file) => ({ ...mm, source: 'local', file }));
     mmReady.catch(() => {}); // reported where it is awaited; do not also surface as unhandled
   }
-  const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, spool: twoPass, gzipOut: twoPass ? false : gzipOut });
+  const pass1 = await rypePass({ ...msg, dir, t0, stage: 'rype', step: 1, steps, names: twoPass ? midNames('rype') : finalNames, spool: spoolOf(twoPass), gzipOut: twoPass ? false : gzipOut });
   if (!twoPass) {
     post('done', { mode, total: pass1.total, affected: pass1.affected, elapsedMs: performance.now() - t0, bytesFetched: pass1.bytesFetched, files: pass1.files, paired: !!r2, phases: pass1.phases, hist: pass1.hist, threshold: msg.threshold });
     return;
@@ -382,10 +398,11 @@ async function run(msg) {
     const last = g === groups.length - 1;
     const stage = `minimap2 parts ${groups[g].map((k) => k + 1).join(',')} of ${mm.parts.length}`;
     const sweepStats = {};
-    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, spool: !last, dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s) });
+    const res = await mmSweep({ inputs, bins, histMm, mm, group: groups[g], names: last ? finalNames : midNames(`mm${g}`), gzipOut: last && gzipOut, spool: spoolOf(!last), dir, batchBytes: msg.batchBytes, t0, stage, step: g + 2, steps, onStats: (s) => Object.assign(sweepStats, s) });
     mmRemoved += res.removed; mmStats.tMap += sweepStats.tMap || 0; mmStats.tWrite += sweepStats.tWrite || 0; mmStats.batches += sweepStats.batches || 0; mmStats.bytesFetched += sweepStats.bytesFetched || 0;
     inputs = res.files; bins = res.bins; // the sweep removed its input parts as it read them
   }
+  if (io) io.close();
   post('done', { mode, total: pass1.total, affected: pass1.affected + mmRemoved, rypeRemoved: pass1.affected, mmRemoved, elapsedMs: performance.now() - t0,
     bytesFetched: pass1.bytesFetched + mmStats.bytesFetched, files: inputs, paired: !!r2, hist: pass1.hist, histMm: Array.from(histMm), threshold: msg.threshold,
     phases: { ...pass1.phases, mm: { ...mmStats, parts: mm.parts.length, concurrency: conc } } });
