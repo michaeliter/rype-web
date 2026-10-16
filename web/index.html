@@ -199,6 +199,7 @@ function spawnWorker() {
 spawnWorker();
 let indexReady = false, running = false, mmUrlOverride = null, indexBuckets = 1; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
 const fmt = (n) => n.toLocaleString();
+const fmtDur = (ms) => { const t = Math.round(ms / 1000); return t < 60 ? `${t} s` : t < 3600 ? `${Math.floor(t / 60)} min ${t % 60} s` : `${Math.floor(t / 3600)} h ${Math.floor(t % 3600 / 60)} min`; };
 const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
 const radio = (name) => document.querySelector(`input[name=${name}]:checked`)?.value;
 const r1 = () => $('fq1').files[0] || null, r2 = () => $('fq2').files[0] || null;
@@ -547,7 +548,7 @@ function onWorkerMessage(e) {
     console.debug('[rype] progress', d.stage, { total: d.total, affected: d.affected, elapsedS: +(d.elapsedMs / 1000).toFixed(1), bytesFetched: d.bytesFetched, phases: d.phases });
   } else if (d.type === 'done') {
     noteAttempt(null); setRunning(false); setStep('stepRun', 'done'); sky.ripen(1); $('bar').value = 1; $('pct').textContent = '100%'; $('dlStatus').textContent = '';
-    setRunStatus(mode === 'classify' ? `Done: ${fmt(d.total)} reads classified.` : `RYpened. ${fmt(d.affected)} of ${fmt(d.total)} ${d.paired ? 'pairs' : 'reads'} were human; the rest is yours below.`);
+    setRunStatus(mode === 'classify' ? `Done in ${fmtDur(d.elapsedMs)}: ${fmt(d.total)} reads classified.` : `RYpened in ${fmtDur(d.elapsedMs)}. ${fmt(d.affected)} of ${fmt(d.total)} ${d.paired ? 'pairs' : 'reads'} were human; the rest is yours below.`);
     for (const f of d.files) { const a = document.createElement('a'); a.className = 'dl'; a.href = URL.createObjectURL(f); a.download = f.name; a.textContent = `Save ${f.name} (${fmtBytes(f.size)})`; $('downloads').appendChild(a); }
     if (d.hist) report.draw(d);
     const p = d.phases, s = (ms) => (ms / 1000).toFixed(1) + ' s';
