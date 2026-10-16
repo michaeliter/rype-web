@@ -88,7 +88,8 @@
   #funnel .bowl { fill:var(--paper); stroke:var(--rule); stroke-width:2; }
   #funnel .stalk { stroke:var(--peel); stroke-width:1.5; stroke-linecap:round; }
   #funnel .spots circle { fill:var(--peel); }
-  .barRow { display:flex; align-items:center; gap:12px; max-width:520px; margin-top:10px; }
+  .barRow { display:flex; align-items:center; gap:12px; max-width:440px; margin-top:10px; }
+  #barRow { max-width:380px; margin-top:4px; } /* sits under the funnel, flush with its width */
   .barRow .pct { font-variant-numeric:tabular-nums; color:var(--soft); font-size:.95rem; min-width:3.5em; }
   .quiet.off { opacity:.5; pointer-events:none; }
   /* Consent: a native dialog, so focus, Escape and the backdrop come for free. */
@@ -99,6 +100,7 @@
   dialog.consent .actions { margin-top:20px; flex-wrap:wrap; }
   /* Progress: a double helix unfurling from a peeled banana (see helixBar). Drawn at 440x48 and scaled uniformly. */
   .helix { display:block; width:100%; max-width:440px; height:auto; flex:1; min-width:0; }
+  #barRow .helix { max-width:320px; }
   /* While work is in progress the strands travel one period to the right and wrap, so the helix appears to turn. */
   .helix.live .strands { animation:helixFlow 1.4s linear infinite; }
   @keyframes helixFlow { from { transform:translateX(-44px); } to { transform:translateX(0); } }
@@ -181,11 +183,11 @@
       <div class="actions"><button id="run" class="primary" disabled>RYpen</button> <button id="cancel" class="secondary" hidden>Stop</button></div>
       <p id="runStatus" class="status" style="margin-top:12px"></p>
       <p id="dlStatus" class="quiet" style="margin-top:4px"></p>
-      <div id="barRow" class="barRow" hidden><svg id="bar" class="helix" role="progressbar" aria-label="Run progress"></svg><span id="pct" class="pct">0%</span></div>
       <svg id="funnel" viewBox="0 -36 360 300" hidden aria-label="reads RYpening through the filter">
         <path class="bowl" d="M50 40 H310 L196 132 V158 H164 V132 Z"/>
         <g id="bananas"></g>
       </svg>
+      <div id="barRow" class="barRow" hidden><svg id="bar" class="helix" role="progressbar" aria-label="Run progress"></svg><span id="pct" class="pct">0%</span></div>
       <div id="downloads"></div>
     </li>
   </ol>
