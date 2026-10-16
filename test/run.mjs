@@ -45,7 +45,7 @@ try {
       }
       if (c.clear) { // the × beside a picker empties it without a reload; re-upload afterwards
         const el = await page.$('#' + c.clear);
-        await page.click(`button[data-clear=${c.clear}]`);
+        await page.$eval(`button[data-clear=${c.clear}]`, (b) => b.click()); // DOM click: the cache row can appear and shift the layout under a coordinate click
         await page.waitForFunction((id) => document.getElementById(id).files.length === 0, { timeout: 2000 }, c.clear).catch(() => {}); // the click handler runs asynchronously
         const n = await el.evaluate((e) => e.files.length); if (n) logs.push(`clear: #${c.clear} still has ${n} file(s)`);
         await el.uploadFile(...[].concat(c.uploads[c.clear]).map(abs)); await el.evaluate((e) => e.dispatchEvent(new Event('change', { bubbles: true })));
