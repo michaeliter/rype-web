@@ -48,6 +48,7 @@
   .quiet summary::before { content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .2s; margin-right:2px; }
   .quiet[open] summary::before { transform:rotate(45deg); }
   .quiet .field { margin-top:12px; }
+  a.aside { color:var(--peel); margin-left:10px; }
   button.linkish { font:inherit; border:0; background:none; color:var(--peel); text-decoration:underline; cursor:pointer; padding:0; }
   .quiet label.block { display:block; color:var(--ink); font-weight:500; margin-bottom:6px; }
   .file { display:flex; gap:8px; align-items:center; }
@@ -122,7 +123,7 @@
       <p id="idxStatus" class="status">Loading the human index…</p>
       <p id="cacheRow" class="quiet" hidden style="margin-top:6px">Stored in this browser: <span id="cacheBytes"></span>. <button id="clearCache" class="linkish">Remove</button></p>
       <details class="quiet" id="localDetails">
-        <summary><input id="useLocal" type="checkbox" aria-label="Use a local index instead"> Use a local index instead</summary>
+        <summary><input id="useLocal" type="checkbox" aria-label="Use a local index instead"> Use a local index instead <a class="aside" href="https://ftp.microbio.me/pub/rype/host-filter/v1/" target="_blank" rel="noopener" onclick="event.stopPropagation()">Download manually here</a></summary>
         <div id="srcLocal" hidden>
           <div class="field"><label class="block" for="idx">RYpe index folder (.ryxdi)</label>
             <div class="file"><input id="idx" type="file" webkitdirectory directory multiple><button class="clear" data-clear="idx" title="Clear index" aria-label="Clear index">×</button></div></div>
