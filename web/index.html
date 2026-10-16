@@ -99,6 +99,9 @@
   dialog.consent .actions { margin-top:20px; flex-wrap:wrap; }
   /* Progress: a double helix unfurling from a peeled banana (see helixBar). Drawn at 440x48 and scaled uniformly. */
   .helix { display:block; width:100%; max-width:440px; height:auto; flex:1; min-width:0; }
+  /* While work is in progress the strands travel one period to the right and wrap, so the helix appears to turn. */
+  .helix.live .strands { animation:helixFlow 1.4s linear infinite; }
+  @keyframes helixFlow { from { transform:translateX(-44px); } to { transform:translateX(0); } }
   #downloads { margin-top:14px; }
   a.dl { display:inline-flex; align-items:center; gap:8px; margin:0 12px 8px 0; color:var(--ink); font-weight:600; text-decoration:none; border-bottom:2px solid var(--ripe); padding-bottom:1px; }
   a.dl:hover { border-color:var(--leaf); }
@@ -110,7 +113,7 @@
   #rpTable td { padding:3px 18px 3px 0; }
   #rpTable td:first-child { color:var(--soft); }
   #rpTable td:nth-child(2) { font-variant-numeric:tabular-nums; }
-  @media (prefers-reduced-motion: reduce) { .step[data-state=busy] .fruit circle { animation:none; } button.primary { transition:none; } }
+  @media (prefers-reduced-motion: reduce) { .step[data-state=busy] .fruit circle { animation:none; } .helix.live .strands { animation:none; } button.primary { transition:none; } }
   @media (max-width:600px) { .hero { clip-path:polygon(0 0, 100% 0, 100% calc(100% - 28px), 0 100%); } .hero-in { padding-bottom:64px; } h1 { margin-top:44px; } .hero-logo { height:132px; } }
 </style>
 </head>
@@ -225,34 +228,30 @@ const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b 
 const radio = (name) => document.querySelector(`input[name=${name}]:checked`)?.value;
 const r1 = () => $('fq1').files[0] || null, r2 = () => $('fq2').files[0] || null;
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Progress as a double helix unfurling from a peeled banana, the logo's motif. The strands and
-// rungs are drawn in full and revealed by a clip rect whose width is the fraction; the part
-// still to come is a dotted track.
+// Progress as a double helix that unfurls to the right: the strands and rungs are drawn in
+// full and revealed by a clip rect whose width is the fraction; the part still to come is a
+// dotted track. While live, CSS slides the strands one period per cycle so the helix turns.
 function helixBar(svg) {
-  const ns = 'http://www.w3.org/2000/svg', W = 440, H = 48, X0 = 56, X1 = W - 4, CY = 25, A = 9, P = 44;
+  const ns = 'http://www.w3.org/2000/svg', W = 440, H = 48, X0 = 6, X1 = W - 6, CY = 24, A = 9, P = 44;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
   const id = svg.id + 'Clip';
   const el = (n, a, parent = svg) => { const e = document.createElementNS(ns, n); for (const k in a) e.setAttribute(k, a[k]); parent.appendChild(e); return e; };
   el('line', { x1: X0, y1: CY, x2: X1, y2: CY, stroke: 'var(--rule)', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-dasharray': '1 6' });
-  const rect = el('rect', { x: X0 - 6, y: 0, width: 0, height: H }, el('clipPath', { id }, el('defs')));
+  const rect = el('rect', { x: X0 - 2, y: 0, width: 0, height: H }, el('clipPath', { id }, el('defs')));
   if (!still) rect.style.transition = 'width .45s ease-out';
-  const g = el('g', { 'clip-path': `url(#${id})` });
-  const pts = (phase) => { let s = ''; for (let x = X0; x <= X1; x += 2) s += `${x},${(CY + A * Math.sin((x - X0) / P * 2 * Math.PI + phase)).toFixed(1)} `; return s; };
+  const g = el('g', { class: 'strands' }, el('g', { 'clip-path': `url(#${id})` }));
+  const L = X0 - P, R = X1 + P; // one period past each end: the animation slides by P and the clip hides the overhang
+  const pts = (phase) => { let s = ''; for (let x = L; x <= R; x += 2) s += `${x},${(CY + A * Math.sin((x - X0) / P * 2 * Math.PI + phase)).toFixed(1)} `; return s; };
   el('polyline', { points: pts(Math.PI), fill: 'none', stroke: '#8c7300', 'stroke-width': 3.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g); // back strand
-  for (let x = X0 + 5; x < X1; x += 7.4) { // rungs, skipped where the strands cross
+  for (let x = L + 5; x < R; x += P / 6) { // rungs, skipped where the strands cross
     const y1 = CY + A * Math.sin((x - X0) / P * 2 * Math.PI), y2 = CY + A * Math.sin((x - X0) / P * 2 * Math.PI + Math.PI);
     if (Math.abs(y1 - y2) > 5) el('line', { x1: x, y1, x2: x, y2, stroke: '#a88a10', 'stroke-width': 2.4, 'stroke-linecap': 'round' }, g);
   }
   el('polyline', { points: pts(0), fill: 'none', stroke: '#d9a400', 'stroke-width': 3.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g); // front strand
-  // The banana: body curving up from the stem, peel split at the right into two strips curling back, pale flesh where the strands emerge.
-  const b = el('g', { transform: 'translate(2 2)' }), ink = { stroke: '#1a1206', 'stroke-width': 1.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' };
-  el('path', { d: 'M36 19 L50 19 C55 19 55 29 50 29 L36 29 Z', fill: '#f7e9b0', ...ink }, b);
-  el('path', { d: 'M6 38 C9 28 20 20 36 19 L36 29 C24 30 13 35 6 38 Z', fill: '#f6c945', ...ink }, b);
-  el('path', { d: 'M36 19 C34 10 26 5 16 8 C24 9 31 13 36 19 Z', fill: '#f2d978', ...ink }, b);
-  el('path', { d: 'M36 29 C34 38 26 43 16 41 C24 40 31 36 36 29 Z', fill: '#f2d978', ...ink }, b);
-  el('path', { d: 'M30 23 C28 22 26 24 27 26', fill: 'none', stroke: '#c9951a', 'stroke-width': 1.4, 'stroke-linecap': 'round' }, b);
-  el('path', { d: 'M6 38 L2 42 L5 44 L8 40 Z', fill: '#6e4521', ...ink }, b);
-  return { set(f) { f = Math.max(0, Math.min(1, f)); rect.setAttribute('width', f * (X1 - X0 + 10)); svg.setAttribute('aria-valuenow', Math.round(f * 100)); } };
+  return {
+    set(f) { f = Math.max(0, Math.min(1, f)); rect.setAttribute('width', f * (X1 - X0 + 4)); svg.setAttribute('aria-valuenow', Math.round(f * 100)); },
+    live(on) { svg.classList.toggle('live', on); },
+  };
 }
 const bars = { run: helixBar($('bar')), idx: helixBar($('idxBar')) };
 // The hero field: five soft blobs of colour drifting slowly. Their hue follows `ripeness`
@@ -299,7 +298,7 @@ function updateRun() {
   if (!running) setStep('stepRun', indexReady && r1() ? 'ready' : 'waiting');
   updatePlan();
 }
-function setRunning(on) { running = on; updateRun(); if (on) { setStep('stepRun', 'busy'); funnel.start(); sky.ripen(.12); } else funnel.stop(); }
+function setRunning(on) { running = on; updateRun(); bars.run.live(on); if (on) { setStep('stepRun', 'busy'); funnel.start(); sky.ripen(.12); } else funnel.stop(); }
 
 function setIdxStatus(msg, err) { $('idxStatus').textContent = msg; $('idxStatus').classList.toggle('err', !!err); if (err) setStep('stepIndex', 'error'); }
 function setRunStatus(msg, err) { $('runStatus').textContent = msg; $('runStatus').classList.toggle('err', !!err); if (err) setStep('stepRun', 'error'); }
@@ -339,7 +338,7 @@ $('consent').addEventListener('cancel', (e) => e.preventDefault()); // Escape mu
 // (a mount posted while the worker is mid-download would race it).
 function setDownloading(on, done = 0, total = 0) {
   indexDownloading = on; downloadPct = total ? Math.floor(100 * done / total) : 0;
-  $('idxBarRow').hidden = !on; bars.idx.set(total ? done / total : 0); $('idxPct').textContent = `${downloadPct}%`;
+  $('idxBarRow').hidden = !on; bars.idx.live(on); bars.idx.set(total ? done / total : 0); $('idxPct').textContent = `${downloadPct}%`;
   for (const id of ['useLocal', 'idx', 'mmFiles']) $(id).disabled = on;
   $('localDetails').classList.toggle('off', on);
 }
