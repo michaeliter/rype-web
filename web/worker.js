@@ -229,7 +229,10 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   const fetched = new Map(); // classifier -> its cumulative index bytes fetched
   const bytesFetched = () => [...fetched.values()].reduce((a, b) => a + b, 0);
   const phases = () => ({ read: RecordReader.tPull, batch: tTake, classify: tClassify, write: tWrite, batches, workers: pool.length });
-  const progress = () => post('progress', { stage, step, steps, total, affected, bytesIn: in1.bytesIn, fileBytes: r1.size, bytesFetched: bytesFetched(), elapsedMs: performance.now() - t0, phases: phases() });
+  // Progress is the file position of the last batch whose results are written (posOf), not
+  // bytes read: the reader runs a batch ahead, so bytesIn hit 100% while work remained.
+  const posOf = new Map(); let bytesDone = 0;
+  const progress = () => post('progress', { stage, step, steps, total, affected, bytesDone, fileBytes: r1.size, bytesFetched: bytesFetched(), elapsedMs: performance.now() - t0, phases: phases() });
 
   // Dispatch: batches go to idle classifiers as they are read; results are
   // written strictly in sequence so output order matches input order.
@@ -254,7 +257,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
   };
   const drain = () => draining = draining.then(async () => {
     for (; results.has(written); written++) {
-      const r = results.get(written); results.delete(written);
+      const r = results.get(written); results.delete(written); bytesDone = posOf.get(written) ?? bytesDone; posOf.delete(written);
       const t = performance.now();
       total += r.total; affected += r.affected; tClassify += r.ms;
       if (r.hist) for (let i = 0; i < hist.length; i++) hist[i] += r.hist[i];
@@ -293,6 +296,7 @@ async function rypePass({ mode, r1, r2, threshold, batchBytes, gzipOut, dir, nam
     tTake += performance.now() - t;
     while (retry.length) { await until(() => idle.length > 0); dispatch(retry.shift()); }
     await until(() => idle.length > 0);
+    posOf.set(seq, in1.bytesIn - in1.len); // file bytes consumed through this batch (gz: compressed bytes read, less the uncompressed remainder, a bounded over-estimate)
     dispatch({ seq: seq++, b1: b1.buffer, b2: b2 ? b2.buffer : null });
   }
   while (retry.length || inflight) {
@@ -402,7 +406,7 @@ async function mmSweep({ inputs, bins, histMm, mm, group, names, storeAs, gzipOu
       if (o2) await sinks[1].write(o2);
       tWrite += performance.now() - t; batches++;
       stats();
-      post('progress', { stage, step, steps, total, affected: removed, bytesIn: in1.bytesIn, fileBytes: inputs[0].size, bytesFetched: FsStats.bytesFetched, elapsedMs: performance.now() - t0 });
+      post('progress', { stage, step, steps, total, affected: removed, recordsTotal: bins.length, bytesFetched: FsStats.bytesFetched, elapsedMs: performance.now() - t0 }); // recordsTotal: this sweep's input count is known exactly
     };
     let inflight = null;
     for (;;) {
