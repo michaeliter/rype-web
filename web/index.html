@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RYpe</title>
+<title>RYpe: Human DNA Filtration</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..700,0..100&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="vendor/anime.umd.min.js"></script>
@@ -100,7 +100,6 @@
   #rpTable td { padding:3px 18px 3px 0; }
   #rpTable td:first-child { color:var(--soft); }
   #rpTable td:nth-child(2) { font-variant-numeric:tabular-nums; }
-  .foot { color:var(--soft); font-size:.9rem; margin-top:56px; }
   @media (prefers-reduced-motion: reduce) { .step[data-state=busy] .fruit circle { animation:none; } button.primary { transition:none; } }
   @media (max-width:600px) { .hero { clip-path:polygon(0 0, 100% 0, 100% calc(100% - 28px), 0 100%); } .hero-in { padding-bottom:64px; } h1 { margin-top:44px; } }
 </style>
@@ -109,7 +108,7 @@
 <header class="hero">
   <canvas id="sky" aria-hidden="true"></canvas>
   <div class="hero-in">
-    <div class="mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#f2c13d"/><path d="M8 8l-2 1" stroke="#6e4521" stroke-width="2" stroke-linecap="round"/></svg>RYpe</div>
+    <div class="mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#f2c13d"/><path d="M8 8l-2 1" stroke="#6e4521" stroke-width="2" stroke-linecap="round"/></svg>RYpe: Human DNA Filtration</div>
     <h1>RYpen your reads.</h1>
     <p class="lede">Drop a FASTQ and this tab picks the human reads out of it. The human index downloads once and stays in this browser; <b>your reads never leave your computer.</b></p>
   </div>
@@ -181,7 +180,6 @@
     <button id="rpSave" class="secondary">Save report as PNG</button>
   </section>
 
-  <p class="foot">RYpe sketches each read in purine/pyrimidine space and checks it against a human index; short reads then get a second look from minimap2. Everything runs in this tab, in WebAssembly.</p>
 </main>
 
 <script>
