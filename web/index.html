@@ -21,7 +21,9 @@
   #sky { position:absolute; inset:-12%; width:124%; height:124%; filter:blur(38px) saturate(1.15); opacity:.9; }
   .hero-in { position:relative; max-width:640px; margin:0 auto; padding:34px 20px 88px; }
   .mark { display:flex; align-items:center; gap:8px; font-weight:600; letter-spacing:-.01em; color:var(--ink); }
-  .mark svg { width:34px; height:26px; }
+  /* The hero body: headline and lede on the left, the peeled-banana helix on the right. */
+  .hero-body { display:grid; grid-template-columns:minmax(0, 1fr) auto; column-gap:20px; align-items:end; }
+  .hero-logo { height:220px; width:auto; margin-bottom:-4px; filter:drop-shadow(0 14px 22px rgba(30,40,22,.25)); }
   h1 { font-family:"Fraunces", Georgia, serif; font-variation-settings:"SOFT" 100, "opsz" 144; font-weight:600; font-size:clamp(2.8rem, 8vw, 4.4rem); line-height:.98; letter-spacing:-.025em; margin:64px 0 18px; }
   .lede { color:var(--ink); opacity:.82; font-size:1.12rem; max-width:30em; margin:0; }
   .lede b { font-weight:600; opacity:1; }
@@ -86,8 +88,15 @@
   #funnel .bowl { fill:var(--paper); stroke:var(--rule); stroke-width:2; }
   #funnel .stalk { stroke:var(--peel); stroke-width:1.5; stroke-linecap:round; }
   #funnel .spots circle { fill:var(--peel); }
-  #barRow { display:flex; align-items:center; gap:12px; max-width:440px; margin-top:10px; }
-  #pct { font-variant-numeric:tabular-nums; color:var(--soft); font-size:.95rem; min-width:3.5em; }
+  .barRow { display:flex; align-items:center; gap:12px; max-width:440px; margin-top:10px; }
+  .barRow .pct { font-variant-numeric:tabular-nums; color:var(--soft); font-size:.95rem; min-width:3.5em; }
+  .quiet.off { opacity:.5; pointer-events:none; }
+  /* Consent: a native dialog, so focus, Escape and the backdrop come for free. */
+  dialog.consent { border:0; border-radius:20px; padding:28px 30px; max-width:min(480px, calc(100vw - 32px)); background:var(--paper); color:var(--ink); box-shadow:0 30px 80px -30px rgba(0,0,0,.5); }
+  dialog.consent::backdrop { background:color-mix(in srgb, #1e2816 55%, transparent); backdrop-filter:blur(3px); }
+  dialog.consent h2 { margin-bottom:12px; }
+  dialog.consent p { margin:0 0 12px; color:var(--soft); }
+  dialog.consent .actions { margin-top:20px; flex-wrap:wrap; }
   progress { flex:1; height:5px; appearance:none; -webkit-appearance:none; border:0; background:var(--rule); border-radius:999px; overflow:hidden; display:block; }
   progress::-webkit-progress-bar { background:var(--rule); } progress::-webkit-progress-value { background:var(--ripe); } progress::-moz-progress-bar { background:var(--ripe); }
   #downloads { margin-top:14px; }
@@ -102,16 +111,18 @@
   #rpTable td:first-child { color:var(--soft); }
   #rpTable td:nth-child(2) { font-variant-numeric:tabular-nums; }
   @media (prefers-reduced-motion: reduce) { .step[data-state=busy] .fruit circle { animation:none; } button.primary { transition:none; } }
-  @media (max-width:600px) { .hero { clip-path:polygon(0 0, 100% 0, 100% calc(100% - 28px), 0 100%); } .hero-in { padding-bottom:64px; } h1 { margin-top:44px; } }
+  @media (max-width:600px) { .hero { clip-path:polygon(0 0, 100% 0, 100% calc(100% - 28px), 0 100%); } .hero-in { padding-bottom:64px; } h1 { margin-top:44px; } .hero-logo { height:132px; } }
 </style>
 </head>
 <body>
 <header class="hero">
   <canvas id="sky" aria-hidden="true"></canvas>
   <div class="hero-in">
-    <div class="mark"><svg viewBox="0 0 42 32" aria-hidden="true"><circle cx="6.5" cy="18" r="4.6" fill="#c0245e"/><circle cx="4.9" cy="16.5" r="1.2" fill="#f7b7cc"/><path d="M7 13.7c.6-1.6 1.6-2.4 3-2.6" fill="none" stroke="#4e7d2a" stroke-width="1.4" stroke-linecap="round"/><g transform="translate(10 0)"><path d="M6 10c2 10 9 16 19 16 1 0 2-.3 2.5-1C20 24 13 18 10 8c-.5-1.5-4.5-.5-4 2z" fill="#f2c13d"/><path d="M8 8l-2 1" stroke="#6e4521" stroke-width="2" stroke-linecap="round"/></g></svg>RYpe: Human DNA Filtration</div>
+    <div class="mark">RYpe: Human DNA Filtration</div>
+    <div class="hero-body"><div>
     <h1>RYpen your reads.</h1>
     <p class="lede">Drop a FASTQ and this tab picks the human reads out of it. The human index downloads once and stays in this browser; <b>your reads never leave your computer.</b></p>
+    </div><img class="hero-logo" src="logo.png" alt="A peeled banana with a strand of DNA rising from it"></div>
   </div>
 </header>
 <main>
@@ -121,6 +132,8 @@
       <svg class="fruit" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path class="stalk" d="M13 4v-3"/></svg>
       <h2>Index</h2>
       <p id="idxStatus" class="status">Loading the human index…</p>
+      <div id="idxBarRow" class="barRow" hidden><progress id="idxBar" value="0" max="1"></progress><span id="idxPct" class="pct">0%</span><button id="idxStop" class="linkish">Stop download</button></div>
+      <p id="idxNote" class="quiet" hidden style="margin-top:6px"><span id="idxNoteText"></span> <button id="idxNoteBtn" class="linkish"></button></p>
       <p id="cacheRow" class="quiet" hidden style="margin-top:6px">Stored in this browser: <span id="cacheBytes"></span>. <button id="clearCache" class="linkish">Remove</button></p>
       <details class="quiet" id="localDetails">
         <summary><input id="useLocal" type="checkbox" aria-label="Use a local index instead"> Use a local index instead <a class="aside" href="https://ftp.microbio.me/pub/rype/host-filter/v1/" target="_blank" rel="noopener" onclick="event.stopPropagation()">Download manually here</a></summary>
@@ -165,7 +178,7 @@
       <div class="actions"><button id="run" class="primary" disabled>RYpen</button> <button id="cancel" class="secondary" hidden>Stop</button></div>
       <p id="runStatus" class="status" style="margin-top:12px"></p>
       <p id="dlStatus" class="quiet" style="margin-top:4px"></p>
-      <div id="barRow" hidden><progress id="bar" value="0" max="1"></progress><span id="pct">0%</span></div>
+      <div id="barRow" class="barRow" hidden><progress id="bar" value="0" max="1"></progress><span id="pct" class="pct">0%</span></div>
       <svg id="funnel" viewBox="0 -36 360 300" hidden aria-label="reads RYpening through the filter">
         <path class="bowl" d="M50 40 H310 L196 132 V158 H164 V132 Z"/>
         <g id="bananas"></g>
@@ -181,6 +194,13 @@
     <button id="rpSave" class="secondary">Save report as PNG</button>
   </section>
 
+  <dialog id="consent" class="consent" aria-labelledby="consentTitle">
+    <h2 id="consentTitle">Keep the human index in this browser?</h2>
+    <p>RYpe needs an index of the human genome, about 1.8 GB. Downloading it once into this browser's private storage means every run starts right away. For short reads, a 9 GB minimap2 index is downloaded the same way during your first run.</p>
+    <p>Nothing is uploaded, and you can remove the stored files at any time with the Remove link under Index.</p>
+    <p>If you would rather store nothing, RYpe streams the index from the server on every run, which is much slower.</p>
+    <div class="actions"><button id="consentYes" class="primary">Download and keep it</button><button id="consentNo" class="secondary">Stream it each time</button></div>
+  </dialog>
 </main>
 
 <script>
@@ -198,7 +218,7 @@ function spawnWorker() {
   worker.onmessage = onWorkerMessage;
 }
 spawnWorker();
-let indexReady = false, running = false, mmUrlOverride = null, indexBuckets = 1; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
+let indexReady = false, running = false, mmUrlOverride = null, indexBuckets = 1, indexDownloading = false, downloadPct = 0; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
 const fmt = (n) => n.toLocaleString();
 const fmtDur = (ms) => { const t = Math.round(ms / 1000); return t < 60 ? `${t} s` : t < 3600 ? `${Math.floor(t / 60)} min ${t % 60} s` : `${Math.floor(t / 3600)} h ${Math.floor(t % 3600 / 60)} min`; };
 const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
@@ -244,7 +264,7 @@ function setStep(id, state) {
   if (state === 'ready' && !still) anime.animate(el.querySelector('.fruit'), { scale: [1, 1.3, 1], duration: 550, ease: 'outBack' });
 }
 function updateRun() {
-  $('run').disabled = !(indexReady && r1()) || running; $('run').hidden = running; $('cancel').hidden = !running;
+  $('run').disabled = !r1() || running; $('run').hidden = running; $('cancel').hidden = !running; // enabled before the index is ready so a click can say why it has to wait
   setStep('stepReads', r1() ? 'ready' : 'waiting');
   if (!running) setStep('stepRun', indexReady && r1() ? 'ready' : 'waiting');
   updatePlan();
@@ -268,14 +288,42 @@ async function mountUrl(base) {
   try { const r = await fetch(base + 'index.json'); if (r.ok) bundle = await r.json(); } catch {}
   const bundleMm = bundle?.rype && bundle.minimap2 ? new URL(bundle.minimap2, base).href : null;
   if (bundle?.rype) base = new URL(bundle.rype, base).href;
-  mount('Loading the human index…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024, bundleMm });
+  mount(streaming() ? 'Opening the index from the server…' : 'Loading the human index…', { source: 'url', base, chunkBytes: (parseFloat(qs.get('chunkMB')) || 8) * 1024 * 1024, bundleMm, cache: !streaming() });
 }
 function mount(status, src) {
-  indexReady = false; setStep('stepIndex', 'busy'); updateRun(); setIdxStatus(status);
+  indexReady = false; setStep('stepIndex', 'busy'); updateRun(); setIdxStatus(status); setDownloading(false); idxNote(null);
   lastMount = { type: 'mount', workers: workerCount(), simulateFail: qs.get('simulateFail'), ...src };
   worker.postMessage(lastMount);
 }
-function unmount(status) { indexReady = false; lastMount = null; setStep('stepIndex', 'waiting'); updateRun(); setIdxStatus(status); }
+function unmount(status) { indexReady = false; lastMount = null; setStep('stepIndex', 'waiting'); updateRun(); setIdxStatus(status); setDownloading(false); }
+// Whether a URL index is kept in browser storage (the default once the user agrees in the
+// consent dialog) or streamed from the server on every run (slower, nothing stored).
+// ?cache=0 forces streaming for the harness; the choice is remembered in localStorage.
+const streaming = () => qs.has('cache') ? qs.get('cache') === '0' : store.get('rype.cache') === 'stream';
+let consentBase = null;
+function askConsent(base) { consentBase = base; $('consent').showModal(); }
+$('consentYes').addEventListener('click', () => { store.set('rype.cache', 'keep'); $('consent').close(); mountUrl(consentBase); });
+$('consentNo').addEventListener('click', () => { store.set('rype.cache', 'stream'); $('consent').close(); mountUrl(consentBase); });
+$('consent').addEventListener('cancel', (e) => e.preventDefault()); // Escape must not leave the page with no index and no answer
+// The index download: a bar under the status, and the local picker is off until it ends
+// (a mount posted while the worker is mid-download would race it).
+function setDownloading(on, done = 0, total = 0) {
+  indexDownloading = on; downloadPct = total ? Math.floor(100 * done / total) : 0;
+  $('idxBarRow').hidden = !on; $('idxBar').value = total ? done / total : 0; $('idxPct').textContent = `${downloadPct}%`;
+  for (const id of ['useLocal', 'idx', 'mmFiles']) $(id).disabled = on;
+  $('localDetails').classList.toggle('off', on);
+}
+let idxNoteAction = null;
+function idxNote(text, button, action) { $('idxNote').hidden = text == null; $('idxNoteText').textContent = text || ''; $('idxNoteBtn').textContent = button || ''; $('idxNoteBtn').hidden = !button; idxNoteAction = action || null; }
+$('idxNoteBtn').addEventListener('click', () => idxNoteAction?.());
+// Stop download: replace the worker (the only way to interrupt its fetches). The committed
+// part stays in storage and the next mount resumes from it.
+$('idxStop').addEventListener('click', () => {
+  if (!indexDownloading || running) return;
+  const pct = downloadPct, base = lastMount?.base; worker.terminate(); spawnWorker();
+  unmount(`Download stopped at ${pct}%. What is already downloaded is kept and resumes.`);
+  idxNote('', 'Resume the download', () => mountUrl(base || indexUrl));
+});
 const indexUrl = new URL(qs.get('index') || DEFAULT_INDEX_URL, location.href).href; // ?index= may be relative to the page
 $('useLocal').addEventListener('click', (e) => e.stopPropagation()); // the checkbox sits in the summary; do not also toggle the details
 $('useLocal').addEventListener('change', () => {
@@ -393,6 +441,11 @@ window.addEventListener('pagehide', () => noteAttempt(null));
   noteAttempt(null); }
 
 async function startRun() {
+  if (!indexReady) {
+    setRunStatus(indexDownloading ? `The human index is still downloading (${downloadPct}%). RYpen becomes available when it finishes.`
+      : lastMount ? 'The index is still loading; one moment.' : 'Choose an index first.');
+    return;
+  }
   let mm;
   try { await detecting; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
   catch (e) { setRunStatus('Error: ' + e.message, true); window.__error = e.message; return; }
@@ -530,14 +583,18 @@ function onWorkerMessage(e) {
   const d = e.data;
   if (d.type === 'download') {
     const pct = d.total ? Math.floor(100 * d.done / d.total) : 0, done = d.done >= d.total;
-    if (d.what === 'index') setIdxStatus(done ? 'Opening the index…' : `Downloading the human index to this browser, ${pct}% of ${fmtBytes(d.total)}. It is kept for next time.`);
+    if (d.what === 'index') { setDownloading(!done, d.done, d.total); setIdxStatus(done ? 'Opening the index…' : `Downloading the human index to this browser, ${pct}% of ${fmtBytes(d.total)}. It is kept for next time.`); }
     else $('dlStatus').textContent = done ? '' : `Fetching the minimap2 index in the background, ${pct}% of ${fmtBytes(d.total)}. It is kept for next time.`;
   } else if (d.type === 'cacheCleared') {
-    if (!$('useLocal').checked) mountUrl(indexUrl); else unmount('Downloaded indexes removed.');
+    store.set('rype.cache', null); // removed by hand: ask again before downloading anything
+    if (!$('useLocal').checked) askConsent(indexUrl); else unmount('Downloaded indexes removed.');
   } else if (d.type === 'mounted') {
-    indexReady = true; indexBuckets = d.buckets; setStep('stepIndex', 'ready'); updateRun();
+    indexReady = true; indexBuckets = d.buckets; setStep('stepIndex', 'ready'); updateRun(); setDownloading(false);
+    window.__mount = { cached: d.cached, source: d.source };
     const mmNote = lastMount?.bundleMm ? ', with a minimap2 check for short reads' : '';
-    setIdxStatus(d.cached ? `Human index ready, stored in this browser${mmNote}.` : `Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${mmNote}.`);
+    if (d.cached) setIdxStatus(`Human index ready, stored in this browser${mmNote}.`);
+    else if (d.source === 'url') { setIdxStatus(`Index ready, streamed from the server on every run (slower)${mmNote}.`); idxNote('', 'Download and keep it instead', () => { store.set('rype.cache', 'keep'); mountUrl(lastMount.base); }); }
+    else setIdxStatus(`Index ready: ${fmt(d.buckets)} bucket(s), ${fmtBytes(d.shardBytes)}${mmNote}.`);
     $('cacheRow').hidden = !d.cacheBytes; $('cacheBytes').textContent = fmtBytes(d.cacheBytes || 0);
     dev('index mounted', { source: d.source, k: d.k, w: d.w, buckets: d.buckets, shards: d.shards, shardBytes: d.shardBytes, workers: d.workers });
   } else if (d.type === 'progress') {
@@ -559,7 +616,7 @@ function onWorkerMessage(e) {
     window.__files = d.files; window.__phases = d.phases;
   } else if (d.type === 'warn') { setRunStatus(d.msg); dev(d.msg);
   } else if (d.type === 'error') {
-    noteAttempt(null); setRunning(false); sky.ripen(0);
+    noteAttempt(null); setRunning(false); sky.ripen(0); setDownloading(false);
     const hint = !indexReady && lastMount?.source === 'url' ? ` (index at ${lastMount.base}; is that server running and sending CORS headers?)` : '';
     if (indexReady) setRunStatus('Error: ' + d.msg, true); else setIdxStatus('Error: ' + d.msg + hint, true);
     window.__error = d.msg;
@@ -593,7 +650,8 @@ function batchBytes() {
 // paired=1, gz=1|multi (gz input), r1=/r2=<testdata file>, mm=url (second pass from
 // mmi=<testdata .mmi> without a bundle), rt=short|long (override the detection), thr=X,
 // gzout=1, mode=classify, batchMB=N, workers=N, mmWorkers=N, simulateFail=<seq>,
-// mmSimulateFail=<seq> (one minimap2 part worker fails on that batch; tests the memory fallback).
+// mmSimulateFail=<seq> (one minimap2 part worker fails on that batch; tests the memory fallback),
+// cache=0 (stream a URL index instead of storing it), consent=ask (show the storage dialog in demo mode).
 // ?demo=manual: the harness fills the pickers itself (real disk files) and calls __start().
 window.__start = () => { const w = setInterval(() => { if (window.__error) clearInterval(w); else if (indexReady) { clearInterval(w); updateRun(); startRun(); } }, 50); };
 function demoOptions() {
@@ -611,7 +669,7 @@ if (qs.get('demo') === 'manual') { // uploads via the pickers; ?index= keeps the
     demoOptions();
     const base = new URL('../testdata/', location.href).href;
     const get = async (rel, name) => { const r = await fetch(base + rel); if (!r.ok) throw new Error(`demo fetch ${rel}: ${r.status}`); return new File([await r.blob()], name || rel.split('/').pop()); };
-    if (qs.get('src') === 'url') mountUrl(qs.get('bundle') ? new URL(qs.get('bundle') + '/', base).href : base + idx + '.ryxdi/'); // bundle= may be absolute
+    if (qs.get('src') === 'url') { const u = qs.get('bundle') ? new URL(qs.get('bundle') + '/', base).href : base + idx + '.ryxdi/'; if (qs.get('consent') === 'ask') askConsent(u); else mountUrl(u); } // bundle= may be absolute; consent=ask shows the dialog
     else {
       useLocalIndex();
       const rels = ['manifest.toml', 'buckets.parquet', 'inverted/shard.0.parquet'];
@@ -625,7 +683,8 @@ if (qs.get('demo') === 'manual') { // uploads via the pickers; ?index= keeps the
     if (qs.get('rt')) { await detecting; document.querySelector(`input[name=rt][value=${qs.get('rt')}]`).click(); }
     window.__start();
   })();
-} else mountUrl(indexUrl);
+} else if (store.get('rype.cache')) mountUrl(indexUrl);
+else askConsent(indexUrl); // first visit: nothing is downloaded until the user says so
 </script>
 </body>
 </html>

@@ -37,6 +37,7 @@ try {
     const t0 = Date.now();
     const demo = c.uploads ? 'manual' : '1';
     await page.goto(`http://localhost:${port}/web/index.html?demo=${demo}&${c.query}&v=${Date.now()}`);
+    if (c.click) { await page.waitForSelector(c.click, { visible: true, timeout: 10000 }); await page.click(c.click); } // e.g. a consent-dialog button the demo waits on
     if (c.uploads) { // real disk-backed Files via the pickers, as a user would (paths may be absolute)
       const abs = (f) => path.resolve(root, f.replace(/^~/, process.env.HOME));
       for (const [id, files] of Object.entries(c.uploads)) {
@@ -58,9 +59,12 @@ try {
       // true: after the first progress message, so batches are really in flight; string: once
       // a stage whose name starts with it reports progress, e.g. "minimap2" (stages are named "minimap2 parts 1,2 of 5"). ('Running…' is shown before the run is even posted.)
       await page.waitForFunction((w) => { const p = window.__progress; return !!window.__error || (!!p && (w === true ? p.total > 0 : (p.stage || '').startsWith(w))); }, { timeout: 600000 }, c.cancel);
-      const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); return { early, status: document.getElementById('runStatus').textContent, cancelHidden: document.getElementById('cancel').hidden, runDisabled: document.getElementById('run').disabled }; });
+      // After Stop the index reloads in a fresh worker. RYpen stays enabled, and a click before the
+      // index is back must not start a run but say why (the page's run-while-not-ready guard).
+      const st = await page.evaluate(async () => { const early = !!window.__result; await window.__cancel(); const status = document.getElementById('runStatus').textContent, cancelHidden = document.getElementById('cancel').hidden, runDisabled = document.getElementById('run').disabled;
+        document.getElementById('run').click(); const clickMsg = document.getElementById('runStatus').textContent; return { early, status, cancelHidden, runDisabled, clickMsg, started: !!window.__progress && window.__progress.total === undefined }; });
       if (st.early) logs.push('cancel: run already finished before cancel');
-      if (st.status !== 'Cancelled.' || !st.cancelHidden || !st.runDisabled) logs.push('cancel: unexpected UI state ' + JSON.stringify(st));
+      if (st.status !== 'Cancelled.' || !st.cancelHidden || st.runDisabled || st.clickMsg !== 'The index is still loading; one moment.') logs.push('cancel: unexpected UI state ' + JSON.stringify(st));
       await page.evaluate(() => { window.__result = null; window.__start(); });
     }
     try {
@@ -82,7 +86,7 @@ try {
         files.push({ name: f.name, size: f.size, sha256: hash, text: small && !gz ? new TextDecoder().decode(buf) : null,
           b64: small && gz ? btoa(Array.from(buf, (b) => String.fromCharCode(b)).join('')) : null }); // gunzipped in Node (multi-member)
       }
-      return { ...window.__result, phases: window.__phases, files, log: window.__log || [] };
+      return { ...window.__result, phases: window.__phases, files, log: window.__log || [], mount: window.__mount };
     }, !!(c.expect && c.expect.files));
     await page.close();
     for (const f of r.files || []) if (f.b64) { f.text = zlib.gunzipSync(Buffer.from(f.b64, 'base64')).toString(); delete f.b64; } // all members, as a reader would see it
@@ -92,6 +96,7 @@ try {
     else {
       const e = c.expect || {};
       for (const k of ['total', 'affected', 'rypeRemoved', 'mmRemoved', 'readType', 'threshold']) if (e[k] != null && r[k] !== e[k]) problems.push(`${k}: got ${r[k]}, want ${e[k]}`);
+      if (e.cached != null && r.mount?.cached !== e.cached) problems.push(`index cached: got ${r.mount?.cached}, want ${e.cached}`); // stored in OPFS vs streamed by range
       if (e.files) e.files.forEach((ef, i) => {
         const f = r.files[i];
         if (!f) return problems.push(`file ${i} missing`);

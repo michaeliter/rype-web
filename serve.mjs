@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 const port = parseInt(process.argv[2] || '8765', 10);
 const root = path.resolve(process.argv[3] || '.');
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.toml': 'text/plain', '.parquet': 'application/octet-stream', '.fq': 'text/plain', '.gz': 'application/gzip' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.toml': 'text/plain', '.parquet': 'application/octet-stream', '.fq': 'text/plain', '.gz': 'application/gzip', '.svg': 'image/svg+xml', '.json': 'application/json' };
 http.createServer((req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range', 'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges' };
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }

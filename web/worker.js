@@ -36,7 +36,7 @@ async function cachedRyxdi(base, what) {
 // cached) clone cheaply across postMessage.
 async function mountIndex(msg) {
   for (const w of pool) w.terminate();
-  if (msg.source === 'url') msg = { ...msg, source: 'local', cached: true, ...(await cachedRyxdi(msg.base, 'index')) };
+  if (msg.source === 'url' && msg.cache !== false) msg = { ...msg, source: 'local', cached: true, ...(await cachedRyxdi(msg.base, 'index')) }; // cache: false streams by range instead
   lastMount = msg;
   const n = Math.max(1, msg.workers | 0);
   pool = Array.from({ length: n }, () => new Worker('classifier.js?v=' + Date.now()));
@@ -442,7 +442,7 @@ async function run(msg) {
   // A URL minimap2 index is downloaded into browser storage while pass 1 runs (network
   // and CPU overlap); the sweeps then read it as a local file.
   let mmReady = null;
-  if (twoPass && mm.source === 'url') {
+  if (twoPass && mm.source === 'url' && lastMount?.cache !== false) { // a streamed rype index means a streamed minimap2 index too
     mmReady = cacheRemote(mm.url, (done, total) => post('download', { what: 'minimap2', done, total })).then((file) => ({ ...mm, source: 'local', file }));
     mmReady.catch(() => {}); // reported where it is awaited; do not also surface as unhandled
   }

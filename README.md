@@ -43,9 +43,19 @@ rype kept; the outputs stay byte-identical to the truth.
 Index sources:
 - a local `.ryxdi` folder picked by the user (WORKERFS over File handles, read
   lazily by byte range, nothing copied into memory)
-- an HTTP(S) URL of a `.ryxdi` directory (or bundle): downloaded once into the
-  browser's private storage (OPFS, `rype-cache/<sha1(url)>/`) and mounted from there
-  as local files on this and every later visit. Every classification pass streams
+- an HTTP(S) URL of a `.ryxdi` directory (or bundle): with the user's consent,
+  downloaded once into the browser's private storage (OPFS, `rype-cache/<sha1(url)>/`)
+  and mounted from there as local files on this and every later visit. The first
+  visit shows a dialog (native `<dialog>`) that says what will be stored (about
+  1.8 GB now, 9 GB more for minimap2 on the first short-read run) and that Remove
+  clears it; the answer is remembered in `localStorage` (`rype.cache` = `keep` |
+  `stream`) and asked again after Remove. Declining streams the index by byte range
+  on every run instead (nothing stored, much slower; the minimap2 index is then
+  streamed too), with a link under Index to switch to downloading. While the
+  download runs the Index card shows a progress bar with a Stop link (the committed
+  part stays and resumes), the local-index picker is disabled (a mount posted
+  mid-download would race it), and clicking RYpen explains that the index is still
+  downloading instead of doing nothing. Every classification pass streams
   essentially the whole index, so fetching it by range on demand would re-download
   the index for each batch of each run; the cache turns a 10 GB-per-run stream into
   a one-time download. A bundle's minimap2 `.mmi` is fetched the same way, in the
@@ -98,7 +108,8 @@ The human bundle's staging copy is at `~/rype-work/staging/human-host-filter/` (
 Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
 single-end file next). Cancel (shown while a job runs) terminates the coordinator worker
 and with it the classifier/minimap2 workers, discards partial outputs, and reloads the
-index in a fresh worker; Run is enabled again once the index is back.
+index in a fresh worker. RYpen stays enabled; clicking it before an index is ready
+starts nothing and says why (still downloading, with the percentage; still loading; or no index chosen).
 Dev smoke tests (same worker paths as the pickers, no file dialogs):
     ?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&thr=0.1&batchMB=0.5
     ?demo=1&idx=wol2_12&src=local&paired=1&gz=1|multi&gzout=1&thr=0.1&batchMB=0.3
@@ -108,7 +119,8 @@ Dev smoke tests (same worker paths as the pickers, no file dialogs):
     ?demo=1&idx=wol2_12&bundle=bundle_wol_chm13&src=url&r1=long200.fq.gz&rt=short  # override
 `thr=` sets the threshold (the harness pins 0.1 everywhere its truth files were made at
 0.1); without it the page's per-type default applies. `rt=short|long` overrides the
-detection.
+detection. `cache=0` streams a URL index instead of storing it; `consent=ask` shows the
+storage dialog in demo mode (the harness clicks a button with a case's `click` field).
 
 ## Verified (2026-10-08, Chrome + Node)
 - paired + single classify TSV identical to native `rype classify run` (wol2_12)
