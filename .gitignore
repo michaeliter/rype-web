@@ -11,6 +11,7 @@ web/rype_mask.js
 web/rype_mask.wasm
 web/mm_filter.js
 web/mm_filter.wasm
+web/THIRD_PARTY_LICENSES.txt
 node_modules/
 package-lock.json
 .DS_Store

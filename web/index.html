@@ -45,6 +45,8 @@
   label.inline { display:inline-flex; gap:8px; align-items:center; margin:0 18px 0 0; cursor:pointer; }
   input[type=checkbox], input[type=radio] { accent-color:var(--leaf); width:16px; height:16px; margin:0; }
   .quiet { margin-top:14px; font-size:.95rem; color:var(--soft); }
+  footer.quiet { margin-top:28px; }
+  footer.quiet a { color:var(--peel); }
   .quiet summary { cursor:pointer; list-style:none; display:inline-flex; gap:6px; align-items:center; }
   .quiet summary::-webkit-details-marker { display:none; }
   .quiet summary::before { content:""; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .2s; margin-right:2px; }
@@ -198,6 +200,8 @@
     <table id="rpTable"></table>
     <button id="rpSave" class="secondary">Save report as PNG</button>
   </section>
+
+  <footer class="quiet">RYpe is open source: <a href="https://github.com/the-miint/rype-web">source code</a> and <a href="THIRD_PARTY_LICENSES.txt">third-party licenses</a>.</footer>
 
   <dialog id="consent" class="consent" aria-labelledby="consentTitle">
     <h2 id="consentTitle">Keep the human index in this browser?</h2>

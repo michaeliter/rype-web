@@ -7,6 +7,7 @@ RYPE_DIR="${RYPE_DIR:-third_party/RYpe}"
 source "$HOME/rype-work/emsdk/emsdk_env.sh" >/dev/null 2>&1
 source ./emcc_flags.sh
 cp "$RYPE_DIR/rype.h" src/rype.h
+cp THIRD_PARTY_LICENSES.md web/THIRD_PARTY_LICENSES.txt   # served next to the page; MkDocs would render a .md
 (cd "$RYPE_DIR" && CARGO_TARGET_DIR="$OLDPWD/target" cargo rustc --target wasm32-unknown-emscripten \
    --no-default-features --lib --crate-type=staticlib --release)
 emcc -O2 -fwasm-exceptions src/mask.c src/gz.c -sUSE_ZLIB=1 target/wasm32-unknown-emscripten/release/librype.a -Isrc \
