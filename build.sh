@@ -2,7 +2,8 @@
 # Build rype (wasm32-emscripten staticlib) + C shim into web/rype_mask.{js,wasm}
 set -euo pipefail
 cd "$(dirname "$0")"
-RYPE_DIR="${RYPE_DIR:-$HOME/rype-work/debug/duckdb-miint/ext/rype}"
+RYPE_DIR="${RYPE_DIR:-third_party/RYpe}"
+[ -f "$RYPE_DIR/Cargo.toml" ] || git submodule update --init third_party/RYpe
 source "$HOME/rype-work/emsdk/emsdk_env.sh" >/dev/null 2>&1
 source ./emcc_flags.sh
 cp "$RYPE_DIR/rype.h" src/rype.h

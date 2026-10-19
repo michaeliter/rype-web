@@ -2,3 +2,7 @@
 	path = third_party/minimap2
 	url = https://github.com/the-miint/minimap2.git
 	branch = v2.30-miint
+[submodule "third_party/RYpe"]
+	path = third_party/RYpe
+	url = https://github.com/michaeliter/RYpe.git
+	branch = michaeliter/wasm32-support
