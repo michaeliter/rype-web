@@ -15,7 +15,4 @@ web/mm_filter.js
 web/mm_filter.wasm
 node_modules/
 package-lock.json
-web/rm_filter.js
-web/rm_filter.wasm
 .DS_Store
-rammap-shim/build.log

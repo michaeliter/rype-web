@@ -1,4 +1,4 @@
-# Link flags shared by every wasm module (sourced by build.sh and build_rm.sh).
+# Link flags shared by every wasm module (sourced by build.sh).
 # MAXIMUM_MEMORY=4GB is why pointers can exceed 2 GiB (see u32At in web/fsutil.js);
 # ENVIRONMENT includes node so the Node tests can load the modules.
 EMCC_COMMON=(-sMODULARIZE=1 -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sABORTING_MALLOC=1 -sMAXIMUM_MEMORY=4GB -sINITIAL_MEMORY=256MB -sFORCE_FILESYSTEM=1 -lworkerfs.js -lnodefs.js)
