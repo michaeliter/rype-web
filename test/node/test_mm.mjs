@@ -1,5 +1,5 @@
 // Headless test of the minimap2 shim against one index part (NODEFS-mounted file).
-//   node test_mm.mjs <part.mmi> <r1.fq> [r2.fq|-] <truth_pairs.txt>
+//   node test/node/test_mm.mjs <part.mmi> <r1.fq> [r2.fq|-] <truth_pairs.txt>
 // truth_pairs.txt: one read id (mate suffix stripped) per line that native minimap2 maps
 // in this part (either mate). Prints a diff summary; exit 1 on mismatch.
 import { createRequire } from 'node:module';
@@ -9,8 +9,8 @@ import { readIds } from './test/util.mjs';
 const require = createRequire(import.meta.url);
 const [,, partPath, r1Path, r2Arg, truthPath] = process.argv;
 const r2Path = r2Arg && r2Arg !== '-' ? r2Arg : null;
-const { partHits } = require('./web/fsutil.js');
-const M = await require('./web/mm_filter.js')({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
+const { partHits } = require('../../web/fsutil.js');
+const M = await require('../../web/mm_filter.js')({ print: () => {}, printErr: (s) => console.error('[mm]', s) });
 M.FS.mkdir('/index'); M.FS.mount(M.NODEFS, { root: path.dirname(path.resolve(partPath)) }, '/index');
 let t0 = performance.now();
 if (M.ccall('mm_part_load', 'number', ['string'], ['/index/' + path.basename(partPath)]) !== 0) throw new Error(M.ccall('mm_last_error', 'string', [], []));

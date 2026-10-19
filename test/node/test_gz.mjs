@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 const require = createRequire(import.meta.url);
-const M = await require('./web/rype_mask.js')();
+const M = await require('../../web/rype_mask.js')();
 const [,, gzPath, refPath] = process.argv;
 const gz = M._gz_new(), outs = M._malloc(8);
 let bytes = 0, newlines = 0; const hash = crypto.createHash('md5');

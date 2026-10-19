@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
-const createRypeMask = require('./web/rype_mask.js');
+const createRypeMask = require('../web/rype_mask.js');
 const [,, indexDir, fastqPath] = process.argv;
 const M = await createRypeMask();
 M.FS.mkdir('/index'); M.FS.mount(M.NODEFS, { root: indexDir }, '/index');

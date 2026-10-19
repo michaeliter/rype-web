@@ -1,10 +1,10 @@
 // Headless test of the wasm shim with a NODEFS-mounted index.
-//   node test_node.mjs filter   <index.ryxdi> <r1.fq> [r2.fq|-] <out_prefix> [thr]
-//   node test_node.mjs classify <index.ryxdi> <r1.fq> [r2.fq|-] <out.tsv>    [thr]
+//   node test/node/test_node.mjs filter   <index.ryxdi> <r1.fq> [r2.fq|-] <out_prefix> [thr]
+//   node test/node/test_node.mjs classify <index.ryxdi> <r1.fq> [r2.fq|-] <out.tsv>    [thr]
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
-const createRypeMask = require('./web/rype_mask.js');
+const createRypeMask = require('../../web/rype_mask.js');
 const [,, mode, indexDir, r1Path, r2Arg, outPath, thr = '0.1'] = process.argv;
 const r2Path = r2Arg && r2Arg !== '-' ? r2Arg : null;
 const M = await createRypeMask();
