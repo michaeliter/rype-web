@@ -9,8 +9,6 @@ testdata/HG00133.fastq.gz
 # built wasm (rebuild with build.sh)
 web/rype_mask.js
 web/rype_mask.wasm
-third_party/minimap2/*.o
-third_party/minimap2/libminimap2.a
 web/mm_filter.js
 web/mm_filter.wasm
 node_modules/
