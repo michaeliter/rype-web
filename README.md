@@ -1,331 +1,165 @@
-# rype-mask-web — RYpe in the browser (prototype)
+# RYpe in the browser: human DNA filtration
 
-Human host read filtering (single- or paired-end FASTQ in, filtered FASTQ out)
-against a RYpe index, entirely in the browser: rype compiled to
-wasm32-unknown-emscripten, a C shim (`src/mask.c`) that parses FASTQ and calls
-`rype_classify`, and a Web Worker. Short reads get a second pass through minimap2
-(below). Multi-bucket classification (rype's native TSV out) still works in the
-workers but has no control on the page; the harness reaches it with `?mode=classify`.
+Remove human reads from a FASTQ without the reads leaving your computer.
+The page at **https://the-miint.github.io/rype/** runs the whole pipeline in the
+browser: a [RYpe](https://github.com/the-miint/RYpe) k-mer screen against a
+T2T-CHM13 v2.0 index, then, for short reads, a
+[minimap2](https://github.com/the-miint/minimap2) pass over what survives.
+Single- or paired-end FASTQ (plain or gzip) in, filtered FASTQ out. Nothing is
+uploaded anywhere.
 
-The page is a dedicated host filter, laid out as a stem of three fruit (Index, Reads,
-RYpen) that turn from green to yellow as each step is satisfied. The hero is a canvas
-field of drifting colour (`sky` in index.html, 64 px wide and CSS-blurred, cut on the bias)
-that ripens from green to gold with the run's progress; while a job runs an SVG
-funnel (anime.js, vendored in `web/vendor/`) ripens green bananas into spotted yellow
-ones. Type: Fraunces for headings, Instrument Sans for everything else (Google Fonts, with
-system fallbacks). Index parameters, byte counts and per-phase timings are not shown; they
-go to the browser console as `[rype] ...` lines (also collected in `window.__log`).
-- The index loads on page load from `DEFAULT_INDEX_URL` in `web/index.html` (a bundle
-  directory, see Run); "Use a local index instead" reveals pickers for a `.ryxdi` folder
-  and, for short reads, the `.mmi` + `.parts.json`.
-- Reads are chosen with the R1/R2 buttons or dropped onto the zone (two files are assigned
-  R1/R2 by name order); each shows as a chip with a × to remove it.
-- Picking R1 reads its first record (gz included): a first read over 300 bp means long
-  reads (rype only, containment threshold 0.05), otherwise short reads (rype at
-  threshold 0, i.e. any shared minimizer, then minimap2). The detection is shown with the
-  choice pre-selected so it can be overridden; the Filter card states the resulting plan.
-- "Set the containment threshold" reveals the threshold field; unchecked, the per-type
-  default applies.
+This repository holds the page, the C shims that wrap RYpe and minimap2 for
+WebAssembly, the build scripts, and a headless test harness. It is published
+by copying `web/` into
+[the-miint.github.io](https://github.com/the-miint/the-miint.github.io)
+under `docs/rype/`.
 
-After a run a Report card shows the human fraction, a bar of removed-by-rype /
-removed-by-minimap2 / survived, and the distribution of each read's best containment
-score (log scale, threshold marked, bins at/above it coloured as removed; below it each
-bar is split, light brown at the bottom for the share minimap2 then removed and green on
-top for what survived), plus the same numbers in a table and a "Save report as PNG"
-button. For this, `mask_filter` classifies at threshold 0 and applies the user's threshold
-itself with rype's comparison (`score >= threshold`), returning a 102-bin histogram
-(no-hit + 0.01 bins) per batch plus each survivor's bin in output order; the minimap2
-sweeps carry those bins along and count their removals per bin. The harness checks that
-the histogram sums to the record count, that its bins at/above the threshold equal rype's
-removals, and that minimap2's per-bin removals sum to its total and only fall in bins
-rype kept; the outputs stay byte-identical to the truth.
+## Requirements for users
 
-Index sources:
-- a local `.ryxdi` folder picked by the user (WORKERFS over File handles, read
-  lazily by byte range, nothing copied into memory)
-- an HTTP(S) URL of a `.ryxdi` directory (or bundle): with the user's consent,
-  downloaded once into the browser's private storage (OPFS, `rype-cache/<sha1(url)>/`)
-  and mounted from there as local files on this and every later visit. The first
-  visit shows a dialog (native `<dialog>`) that says what will be stored (about
-  1.8 GB now, 9 GB more for minimap2 on the first short-read run) and that Remove
-  clears it; the answer is remembered in `localStorage` (`rype.cache` = `keep` |
-  `stream`) and asked again after Remove. Declining streams the index by byte range
-  on every run instead (nothing stored, much slower; the minimap2 index is then
-  streamed too), with a link under Index to switch to downloading. While the
-  download runs the Index card shows a progress bar with a Stop link (the committed
-  part stays and resumes), the local-index picker is disabled (a mount posted
-  mid-download would race it), and clicking RYpen explains that the index is still
-  downloading instead of doing nothing. Every classification pass streams
-  essentially the whole index, so fetching it by range on demand would re-download
-  the index for each batch of each run; the cache turns a 10 GB-per-run stream into
-  a one-time download. A bundle's minimap2 `.mmi` is fetched the same way, in the
-  background while rype's pass runs, the first time a short-read run needs it. The
-  download runs 4 × 32 MB ranges in parallel, commits in order and resumes from the
-  last committed byte after a reload; a changed `ETag`/`Last-Modified` or size
-  restarts it. The server must support `Range` requests, expose `Content-Length`,
-  and (cross-origin) send CORS headers. The page asks for persistent storage and
-  checks `navigator.storage.estimate()` before downloading; the Index card shows
-  what is stored and a Remove link that clears it.
+- **Browser**: tested on desktop Chrome and Chromium-based Edge. Firefox and
+  Safari are untested; the page relies on OPFS synchronous access handles in
+  workers and on 4 GB wasm32 worker heaps.
+- **Memory**: the default of 4 RYpe workers plus 4 minimap2 workers wants about
+  16 GB of RAM. On Chromium the page scales the worker count down when
+  `navigator.deviceMemory` reports less, and halves the minimap2 width after a
+  worker runs out of memory.
+- **Storage**: with your consent the index is downloaded once into the browser's
+  private storage and reused on later visits: 1.8 GB for the RYpe index, plus
+  9 GB for the minimap2 index on the first short-read run. Allow roughly 15 GB
+  free. Declining stores nothing and streams the index from the server on every
+  run, which is much slower. The stored files can be removed at any time from
+  the Index card.
+- **Server**: the default index bundle is
+  `https://ftp.microbio.me/pub/rype/host-filter/v1/`, which serves `Range` and
+  CORS headers. `?index=<url>` points the page at another bundle.
 
-Outputs stream to the browser's private storage (OPFS) as they are produced,
-so output size is not bounded by memory; optional gzip. Gzip output is compressed
-one batch at a time by a pool of up to four `web/gzip_worker.js` workers and written
-as concatenated members in input order (a single CompressionStream on the coordinator
-took 257 s of a 299 s run on 1M long reads; with the pool the same run takes 104 s,
-45 s of it in the writer).
-- Gzip input is inflated by zlib inside the wasm module (`src/gz.c`), not by
-  `DecompressionStream`, because the browser API rejects multi-member gzip
-  ("Junk found after end of compressed data") and real FASTQ gz files from
-  bgzip/pigz/concatenation are multi-member. Fixture: `testdata/real_mix.multi.fq.gz`
-  (two members); demo hook `gz=multi` exercises it. Verified on the 2.5 GB HG00133
-  long-read file (1000+ members) under Node.
+## How it works
 
-## Layout
-- `src/mask.c`        C shim: `mask_filter` (paired-aware) and `mask_classify` (TSV)
-- `web/index.html`    UI; `web/worker.js` worker; `web/rype_mask.{js,wasm}` built module;
-                      `web/vendor/anime.umd.min.js` (anime.js 4, from `npm install`, copied in)
-- `build.sh`          rebuilds librype.a (wasm) + the module
-- `serve.mjs`         dev server with Range + CORS support (python http.server lacks Range)
-- `test_node.mjs`     headless harness: `node test_node.mjs filter|classify <idx> <r1> [r2|-] <out> [thr]`
-- `testdata/`         chr1_slice.ryxdi (1 bucket), wol2_12.ryxdi (12 WoL2 genomes, 1 bucket each),
-                      mixed.fq (human-slice + random), wol_r{1,2}.fq (paired, 4 indexed genomes +
-                      1 outside genome + random) with native rype truth TSVs
-- `rype-wasm-fixes.patch`  the rype changes (also on branch michaeliter/wasm32-support)
+1. **Index.** A bundle directory holds `index.json`
+   (`{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }`) next to a RYpe
+   `.ryxdi` directory and a multi-part minimap2 `.mmi` with a `.parts.json`
+   listing its part byte ranges. A local `.ryxdi` folder and `.mmi` can be
+   picked instead. The index files are served to the wasm modules through
+   Emscripten's WORKERFS from `File` or OPFS handles, read lazily by byte range
+   with an 8 MB read-ahead cache (`web/classifier.js`), never copied into memory.
+2. **Reads.** `web/worker.js` is the coordinator: it reads and gunzips the input
+   (zlib inside the wasm module, because real `.gz` files are multi-member),
+   cuts it into 256 MB batches, and dispatches them to N `web/classifier.js`
+   workers, each a separate wasm instance. There is no SharedArrayBuffer, so the
+   page needs no COOP/COEP headers and runs from any static host.
+3. **RYpe pass.** `src/mask.c` parses FASTQ and calls `rype_classify`. A pair is
+   removed if either mate's best containment score reaches the threshold (0.05
+   for long reads, 0 for short reads, i.e. any shared minimizer). The first
+   record of R1 decides long vs short (over 300 bp is long); the choice can be
+   overridden.
+4. **minimap2 pass (short reads).** Survivors are mapped with the `sr` preset,
+   one `web/mm_worker.js` per index part, each part mounted as its own file
+   from a byte range of the `.mmi`. A pair is dropped if either mate maps in any
+   part. Parts are swept in groups sized to the memory available, and a group
+   that runs out of memory is retried at half the width.
+5. **Output.** Filtered FASTQ streams to OPFS as it is produced (optionally
+   gzipped by a pool of `web/gzip_worker.js` workers) and is offered for
+   download. Intermediates are spooled one file per batch and deleted as soon
+   as the next pass has consumed them. A report shows the human fraction, what
+   each pass removed, and the distribution of best containment scores.
 
-## Run
-    node serve.mjs 8765 .                        # the page, from this directory
-    node serve.mjs 8766 ~/rype-work/staging      # the human bundle, until it is on the ftp server
-    open http://127.0.0.1:8765/web/index.html
-The default index is a bundle directory: one that holds `index.json` with
-`{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }` next to both indexes (plus the
-`.parts.json` beside the `.mmi`), so one URL configures the rype index and the second
-pass together. `DEFAULT_INDEX_URL` in `web/index.html` is the published bundle,
-`https://ftp.microbio.me/pub/rype/host-filter/v1/` (Range + CORS verified 2026-10-14);
-`?index=<url>` overrides it, e.g. `?index=../testdata/bundle_wol_chm13/` or a local copy
-served with `node serve.mjs 8766 ~/rype-work/staging` as `http://127.0.0.1:8766/human-host-filter/`.
-The human bundle's staging copy is at `~/rype-work/staging/human-host-filter/` (10 GB);
-`testdata/bundle_wol_chm13/` is a small symlinked one for tests.
-Each file picker has a × that empties it without reloading (e.g. drop R2 to run a
-single-end file next). Cancel (shown while a job runs) terminates the coordinator worker
-and with it the classifier/minimap2 workers, discards partial outputs, and reloads the
-index in a fresh worker. RYpen stays enabled; clicking it before an index is ready
-starts nothing and says why (still downloading, with the percentage; still loading; or no index chosen).
-Dev smoke tests (same worker paths as the pickers, no file dialogs):
-    ?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&thr=0.1&batchMB=0.5
-    ?demo=1&idx=wol2_12&src=local&paired=1&gz=1|multi&gzout=1&thr=0.1&batchMB=0.3
-    ?demo=1&idx=chr1_slice&src=url
-    ?demo=1&idx=human&src=url&chunkMB=32               # needs testdata/human.ryxdi symlink
-    ?demo=1&idx=human&src=url&r1=long200.fq.gz          # long reads detected, threshold 0.05
-    ?demo=1&idx=wol2_12&bundle=bundle_wol_chm13&src=url&r1=long200.fq.gz&rt=short  # override
-`thr=` sets the threshold (the harness pins 0.1 everywhere its truth files were made at
-0.1); without it the page's per-type default applies. `rt=short|long` overrides the
-detection. `cache=0` streams a URL index instead of storing it; `consent=ask` shows the
-storage dialog in demo mode (the harness clicks a button with a case's `click` field).
+Measurements, design notes and the history behind these choices are in
+[`docs/notes.md`](docs/notes.md).
 
-## Verified (2026-10-08, Chrome + Node)
-- paired + single classify TSV identical to native `rype classify run` (wol2_12)
-- paired filter keeps exactly the pairs with no hit, R1/R2 in sync, across batches, gz in/out
-- human.ryxdi (1.7 GB) by URL range from localhost: same hits as native; whole index fetched per pass
+## Repository layout
 
-## Required rype changes (branch michaeliter/wasm32-support on github.com/michaeliter/RYpe)
-Also exported as `rype-wasm-fixes.patch` (diff vs e4720be).
-1. `File::try_clone` is unconditionally Unsupported on wasm32 in Rust std, and
-   parquet's `impl ChunkReader for File` clones on every read. `ParquetFile`
-   (src/indices/parquet/file_reader.rs) is `File` natively and a pread-based
-   `PositionalFile` on emscripten; every parquet reader in the crate uses it
-   (a source-scan test enforces this).
-2. No OS threads on wasm32: the classify shard loop runs inline, the progress
-   reporter is skipped, and the index-build flush sort falls back to an inline
-   sort when rayon has one thread.
-Verified by running rype's own unit tests on wasm32 under node:
-    CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER=node \
-    RUSTFLAGS="-A arithmetic_overflow -C link-arg=-fwasm-exceptions -C link-arg=-sALLOW_MEMORY_GROWTH=1 -C link-arg=-sMAXIMUM_MEMORY=4GB" \
-    cargo test --target wasm32-unknown-emscripten --no-default-features --lib --release
-(474 pass; the 12 failures are pre-existing c_api layout / memory tests that assume 64-bit.)
+| Path | What it is |
+|---|---|
+| `web/index.html` | The page: UI, consent dialog, progress, report. Reads the demo query parameters listed under Tests. |
+| `web/worker.js`, `web/classifier.js`, `web/mm_worker.js`, `web/spool_worker.js`, `web/gzip_worker.js`, `web/fsutil.js` | Coordinator, RYpe workers, minimap2 workers, OPFS spool, gzip pool, shared WORKERFS and byte-range helpers. |
+| `web/rype_mask.{js,wasm}` | **Built artifact.** RYpe + `src/mask.c` + `src/gz.c`, produced by `build.sh`. Not committed. |
+| `web/mm_filter.{js,wasm}` | **Built artifact.** minimap2 + `src/mm.c`, produced by `build_mm2.sh` and `build.sh`. Not committed. |
+| `web/vendor/anime.umd.js` | anime.js 4.5.0, the unminified UMD bundle from npm, unmodified. |
+| `web/THIRD_PARTY_LICENSES.txt` | **Built artifact.** Copy of `THIRD_PARTY_LICENSES.md` made by `build.sh`, linked from the page footer. |
+| `web/logo.png` | Hero illustration. |
+| `src/` | C shims: `mask.c` (RYpe filter/classify), `gz.c` (multi-member gunzip), `mm.c` (minimap2 part loading and paired mapping), `rype.h` (copied from RYpe by `build.sh`). |
+| `third_party/RYpe` | Git submodule: RYpe on the `michaeliter/wasm32-support` branch (the-miint/RYpe PR #30). |
+| `third_party/minimap2` | Git submodule: the-miint/minimap2, branch `v2.30-miint`. |
+| `build.sh`, `build_mm2.sh`, `emcc_flags.sh` | Build scripts and the link flags shared by both modules. |
+| `serve.mjs` | Dev server with `Range` and CORS support. |
+| `test/` | Headless harness (`run.mjs`, `cases.json`), minimap2 part parity test, Node-level module tests under `test/node/`, perf case files and the miint SQL cascade used for comparison. |
+| `testdata/` | Small indexes and FASTQ fixtures with truth files produced by the native tools. |
+| `tools/` | `mmi_parts.py` (writes `.parts.json` for a multi-part `.mmi`), `mm_parts_truth.sh`, `measure_reads.mjs`. |
+| `THIRD_PARTY_LICENSES.md` | Licenses of everything compiled into or shipped with the page. |
+| `docs/notes.md` | Dated measurements and design history. |
 
-## Prerequisites
-emsdk (installed at ~/rype-work/emsdk), `rustup target add wasm32-unknown-emscripten`.
-Link needs `-fwasm-exceptions` (Rust's emscripten target uses wasm EH).
+## Building
 
-## Performance notes (2026-10-08, HG00133 long reads, 5.5 GB uncompressed, human.ryxdi)
+Prerequisites: [emsdk](https://emscripten.org/docs/getting_started/downloads.html)
+installed at `~/rype-work/emsdk` (or edit the `source` line in the build scripts),
+a Rust toolchain with `rustup target add wasm32-unknown-emscripten`, and Node 20+.
 
-One 640 MB batch, same slice, sequential runs:
-
-| run | wall | CPU | peak RSS |
-|---|---|---|---|
-| native rype, 12 threads | 3.3 s | 17 s | 4.3 GB |
-| native rype, RAYON_NUM_THREADS=1 | 16.3 s | 15.5 s | 3.6 GB |
-| wasm, Node, 1 thread | 21.8 s | 22 s | 4.5 GB |
-
-- wasm is ~1.35x native single-thread; the gap to native is parallelism, not wasm.
-- rype's working set is ~5.6 B of heap per input byte, and wasm32 caps the heap at
-  4 GB, so batches are capped at ~700 MB (default 512 MB, `?batchMB=` to override).
-  Bigger batches are not possible without memory64 (no Rust emscripten wasm64 target).
-- Index read path (2026-10-08): rype issues ~83k reads per pass over the 1.7 GB human
-  shard (three quarters under 4 KB). Stock WORKERFS does Blob.slice + FileReaderSync per
-  read, a browser-process round trip each: ~25 s per pass for local and URL sources
-  alike. `classifier.js` now serves index files from an 8 MB read-ahead cache
-  (`ChunkedSource`) and patches the WORKERFS read op to copy from it: 36 s -> 7.7 s per
-  pass on the 40k-read fixture. Small batches touch only the row groups they overlap,
-  so the "whole shard per pass" cost is specific to large batches.
-- Parallelism (2026-10-08): `web/worker.js` is a coordinator that reads, gunzips and
-  batches the input, and dispatches batches to N `web/classifier.js` workers, each a
-  separate wasm instance with its own mount of the index (no SharedArrayBuffer, so no
-  COOP/COEP headers needed on static hosting). Results are written in input order.
-  Defaults: min(4, cores-1) workers, 256 MB batches (~6 bytes of heap per input byte
-  per worker, so ~8 GB total); `?workers=N&batchMB=N` to override. The classify figure
-  in the breakdown is summed worker CPU time, so it can exceed the elapsed time.
-  Defaults also scale down with `navigator.deviceMemory` (Chromium only, clamped to 8, so
-  it only ever shrinks the count below 8 GB: 4 GB -> 1 worker, 2 GB -> 1 worker with
-  128 MB batches; 8 GB reports the same as 64 GB and gets the full default).
-  If a classifier traps or cannot grow its heap mid-run it hands its batch back, is
-  terminated, and the batch is retried on the remaining workers (status line shows a
-  warning); the last worker failing, or a crash that loses the batch, ends the run with a
-  message suggesting fewer workers. `?simulateFail=<seq>` makes one worker throw on that
-  batch to exercise the path.
-- `RecordReader` used to concatenate on every stream chunk (quadratic); it now keeps
-  a chunk list and assembles each batch once. The stats table shows a per-phase
-  breakdown (read+gunzip / batching / classify / write) for diagnosing runs.
-- Demo `src=local` fetches the index (and `r1=`) into in-memory Blobs; for files
-  this large Chrome pages them to disk and the run is much slower than with
-  picker-chosen Files, so time real runs through the pickers, not the demo hook.
-
-## Short-read second pass (minimap2 `sr` vs T2T)
-
-For short reads (detected or chosen, paired or single) the host filter runs a second pass
-after rype: minimap2 with the `sr` preset against the T2T (CHM13) genome. A pair is
-dropped if either mate maps in any part. The pass needs the bundle's `.mmi` (URL source)
-or the picked `.mmi` + `.parts.json` (local source); without one, short reads are
-filtered by rype alone and the Filter card says so. Pieces:
-- `src/mm.c` + `third_party/minimap2` (copied from the miint submodule, built by
-  `build_mm2.sh` with the same SSE2-via-SIMD128 flags miint uses) -> `web/mm_filter.wasm`.
-- `web/mm_worker.js`: one worker per index part; the part is mounted as its own file
-  from a byte range of the `.mmi` (picked or cached File) via `fsutil.js`, so a 9 GB
-  single-file index is never copied into memory.
-- A single-part `.mmi` cannot be used: minimap2 loads a part whole and wasm32 caps a
-  worker at 4 GB. Build the index multi-part (`-I` counts bases, not bytes):
-  `minimap2 -x sr -t 10 -I 600M -d chm13_sr_parts.mmi chm13.fa.gz` -> 5 parts of
-  <= 1.96 GiB, ~2.7 GiB heap each when loaded. Then `python3 tools/mmi_parts.py x.mmi`
-  writes `x.mmi.parts.json` (part byte ranges), which must sit beside the index.
-  Parts must also stay under ~100M distinct minimizers (the build log prints the count per
-  part): minimap2 keeps each of the 2^14 hash buckets in a khash table that doubles once a
-  bucket passes 6,308 keys, so a part just over that average needs twice the hash memory.
-  A balanced 4-part CHM13 build (2026-10-15, chromosomes regrouped to 773-783 Mb each,
-  95.8-105.3M minimizers) measured 2.77 GiB for three parts and >4 GiB for the fourth,
-  which cannot load; an 8-part build was slower than 5 parts (528 s vs 499 s on 20M pairs,
-  more per-read seeding repeated per part). 5 parts stays. Allocation failure in a worker
-  aborts (`-sABORTING_MALLOC=1` in `emcc_flags.sh`) so the coordinator's memory fallback
-  sees an error; with the default NULL return, minimap2's unchecked mallocs made the load
-  spin forever.
-- `worker.js` runs the sweeps: rype output -> parts 1..c -> survivors -> parts c+1..2c ...
-  (`c` = `?mmWorkers=`, default the rype worker count, so 4 x 4 on a 4-core-plus machine,
-  ~3 GB per part worker; on Chromium a `navigator.deviceMemory` below 8 GB lowers both
-  counts, but the value is clamped to 8 so 8 GB and larger machines all get the default).
-  The classifiers (~1.8 GB each) are released before the first sweep and remounted at the
-  next run, so peak memory is the larger phase, not the sum (measured on 20M pairs with
-  4 + 4 workers, largest Chrome process sampled every 10 s: 20 GB before the release,
-  13 GB after, 12.3 GB during rype, 13.0 GB during the 4-part sweep, 5.4 GB during the
-  1-part sweep). Each batch is broadcast to the sweep's part workers and the hit flags OR-ed.
-- Memory fallback (4 x 4 -> 4 x 2 -> 4 x 1): a part worker that traps, cannot grow its
-  wasm heap or crashes makes the sweep terminate its workers, keep the first half of its
-  parts, resend the batch in flight and carry on; the shed parts and all later ones are
-  regrouped at the new width and swept afterwards over this sweep's output (filtering is
-  idempotent, so records the shed parts had already screened are screened twice). If that
-  happens in the final sweep, the re-run final sweep stores its output under another OPFS
-  name (`<name>.retryN`, served under the real name) because it reads the previous final
-  file. The page records the width of the run in progress in `localStorage`
-  (`rype.attempt`, cleared on done/error/cancel/pagehide); finding it at load means the tab
-  died mid-run (Chrome's out-of-memory kill, which no code in the page can observe), and
-  sets `rype.mmCap` to half that width for later runs. `?mmSimulateFail=<batch>` makes one
-  part worker fail on that batch (harness cases `minimap2-oom-fallback-*`).
-- Intermediates between passes are spooled as one OPFS file per batch (`Spool` in
-  `worker.js`), and the pass that reads them deletes each part as soon as it has been
-  consumed, so only about one copy of the surviving reads is on disk at a time. For a
-  20M-pair sample that is ~13.5 GB plus the cached indexes; the earlier whole-file
-  intermediates kept two copies (~38 GB) and ran this laptop out of disk. The parts are
-  written and removed by `web/spool_worker.js`, not the coordinator: storage promises
-  (`getFileHandle`, `createSyncAccessHandle`, `createWritable`) do not get serviced in a
-  worker whose event loop is saturated with 256 MB batch traffic from four classifiers
-  (a 20M-pair run sat on its first part for two hours; small inputs never show it), so
-  the coordinator transfers each batch to the idle spool worker and gets a `File` back.
-- Verified against native minimap2 on `testdata/sr_mix_r{1,2}.fq` (5000 simulated T2T
-  chr22 pairs + 9000 WoL pairs): identical hit set per part (`test_mm.mjs`) and the
-  two-pass browser output equals the complement of the native rype + minimap2 truth.
-
-## rammap evaluation (2026-10-13, experimental, not wired into the page)
-
-`rammap-shim/` + `build_rm.sh` build github.com/jwanglab/rammap (Rust, c63fbb2) as a
-second wasm module, `web/rm_filter.{js,wasm}`, with the same C ABI as the minimap2 shim
-(`rm_part_load`, `rm_part_hits`, ...). rammap-core needs one patch to build for
-wasm32-unknown-emscripten (`rammap-emscripten.patch`: gate the wasm-bindgen glue on
-wasm32-unknown-unknown); the shim expects the patched checkout at `../rammap-src/rammap`.
-`MOD=rm node test_mm.mjs ...` drives it. Findings, part 4 of chm13_sr_parts.mmi (1.06 GB),
-200k HG00133 pairs, Node, single thread, sequential runs:
-
-| | map time | wasm heap after load | hits vs minimap2 CLI |
-|---|---|---|---|
-| minimap2 fork shim (`mm_filter`) | 34.6 s | 1.47 GiB | identical (84,349) |
-| rammap shim via the CLI pipeline path | 43.0 s | 2.42 GiB | identical (84,349) |
-
-Native rammap 1.1.3 also produced byte-identical PAF (columns 1-12) to minimap2 2.30 on
-sr_mix and on the 2,947 cascade survivors against the 5-part index. The blocker: rammap's
-.mmi loader keeps the raw bucket data alive while converting it into its own hash tables
-and pushes singleton positions into a flat array, so a 2.1 GB part needs ~4.8 GB and aborts
-under the wasm32 4 GB cap (`memory allocation of 1073741824 bytes failed`). Parts of
-~1 GB load fine. Using rammap in the browser therefore needs either a ~10-part index
-(`-I 300M`) or a streaming loader in rammap. The rammap `Aligner::map_pair` API must not
-be used for parity: it enables CIGAR output, which switches pairing mode and dropped 40 of
-84,349 pairs; the shim calls `align_and_format_pair` the way the CLI does.
-
-Side finding fixed along the way: the minimap2 shim did not reverse-complement R2 before
-mapping as the CLI does for the `sr` preset (pe_ori = FR), which lost 3 weakly paired
-reads of 14,000 on part 1. Fixed in `src/mm.c`; parts 1 and 4 now match the CLI exactly.
-
-## Automated headless tests
-
+```bash
+git clone --recurse-submodules https://github.com/the-miint/rype-web
+cd rype-web
+npm install            # puppeteer-core (tests) and animejs (vendored copy's source)
+bash build.sh          # builds librype.a and libminimap2.a for wasm, then both modules
 ```
-npm install          # puppeteer-core only; uses the installed Chrome
-npm test             # or: node test/run.mjs <name-filter>
+
+`build.sh` compiles RYpe as a `wasm32-unknown-emscripten` static library, links it
+with `src/mask.c` and `src/gz.c` into `web/rype_mask.{js,wasm}`, then links
+`src/mm.c` with `libminimap2.a` (built once by `build_mm2.sh` with wasm SIMD128
+standing in for SSE2) into `web/mm_filter.{js,wasm}`. Both link with
+`-sMAXIMUM_MEMORY=4GB` and `-sABORTING_MALLOC=1` (`emcc_flags.sh`): the 4 GB
+wasm32 heap is why batches are capped and why a single-part minimap2 index
+cannot be used. The `.js` files are Emscripten's generated runtime glue.
+
+To make a minimap2 index the page can load, build it multi-part and describe
+the parts:
+
+```bash
+minimap2 -x sr -t 10 -I 600M -d chm13_sr_parts.mmi chm13.fa.gz   # 5 parts for CHM13
+python3 tools/mmi_parts.py chm13_sr_parts.mmi                      # writes chm13_sr_parts.mmi.parts.json
 ```
-`test/run.mjs` starts `serve.mjs` on a random port, drives `web/index.html?demo=...` in
-headless Chrome, waits for `window.__result`, and checks counts and SHA-256 of the
-outputs against `test/cases.json` (truth files under `testdata/`, all produced by the
-native tools); `readType` and `threshold` expectations check the detection and the
-per-type defaults (`testdata/long200.fq.gz`: the first 200 HG00133 reads). Cases needing the big local indexes (`testdata/human.ryxdi`,
-`chm13_sr_parts.mmi`) are skipped when absent. Failing outputs are saved under
-`scratch/test-out/<case>/`. `npm test` then runs `test/mm_parts_parity.mjs`: every part of
-`testdata/chm13_sr_parts.mmi` is mounted by byte range as `mm_worker.js` does and the
-sr_mix pairs mapped; the hit set must equal native minimap2's for that part
-(`testdata/sr_parts_truth/part<i>.txt`, regenerated with `tools/mm_parts_truth.sh`).
-Skipped when the index is absent. A case with `"cancel": true` (or `"cancel": "<stage>"`, e.g.
-`"minimap2"`) presses Cancel once that state is shown, then starts again and checks the
-rerun's result; `"clear": "<input id>"` presses that picker's × before the run and
-re-uploads the file.
 
-### Paired-end HG00133 cascade, browser vs native (2026-10-09)
+Each part must load within a 4 GB worker; see `docs/notes.md` for the limits.
 
-10,032,107 pairs (2 x ~1 GB gz), human.ryxdi then T2T minimap2 sr, 5 parts. Same
-machine, runs sequential. Both remove 10,029,160 pairs by rype and 2,944 by minimap2,
-leaving the same 3 pairs.
+## Running locally
 
-| | wall | peak RSS |
-|---|---|---|
-| native rype, 4 threads | 63.5 s | 13.6 GB |
-| native survivor extraction (python, not optimised) | 50.4 s | 1.4 GB |
-| native minimap2 sr, 4 threads, 5 parts | 21.4 s | 3.2 GB |
-| browser, 4 rype workers + 4 part workers, end to end | 52.5-61.8 s | ~8 GB rype, ~12 GB minimap2 phase |
-| miint native SQL cascade, tables, SET threads=4 (CREATE TABLE from read_fastx -> rype_classify -> anti join -> align_minimap2 -> COPY FASTQ) | 175-183 s total: CREATE TABLE 139 s, rype_classify 26 s, align_minimap2 17 s | 15.1 GB |
-| miint native SQL cascade, views only, SET threads=4 (same stages, no tables; 2026-10-13) | 119.7 s | 10.3 GB |
-| miint `read_fastx` alone, `SELECT count(*)` over both mates | 22.2 s | 50 MB |
+```bash
+node serve.mjs 8765 .
+open http://127.0.0.1:8765/web/index.html
+```
 
-miint's SQL pipeline gives the same 3 survivors either way (`test/miint_cascade.sql`,
-`test/miint_cascade_views.sql`). Reading the gzipped pairs is cheap (22 s); the 139 s in the
-table variant is materialising 10M pairs with qualities into a DuckDB table. The view
-variant streams but re-runs `read_fastx` for every consumer of the view (rype_classify,
-the anti join, align_minimap2's input, the final COPY), because the functions take a
-relation name and return only hit ids; a pass-through filter function would make it a
-single read.
-The browser overlaps gunzip with classification and never materialises the survivors on
-disk, so it matches native rype alone; the minimap2 phase is small here because rype
-removes 99.97% of a human sample first. Reproduce: `CASES=test/perf-cascade.json npm test`
-(real disk files through the pickers via puppeteer `uploadFile`; `demo=manual`).
+Query parameters: `?index=<bundle url>` replaces the default bundle;
+`?workers=N`, `?mmWorkers=N`, `?batchMB=N` override the defaults;
+`?cache=0` streams a URL index instead of storing it. The `?demo=1` hooks used
+by the tests drive the same worker paths without file dialogs, e.g.
+`?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&thr=0.1&batchMB=0.5`
+(`idx`, `src=url|local`, `paired`, `mode=filter|classify`, `thr`, `gz=1|multi`,
+`gzout`, `r1`, `rt=short|long`, `bundle`, `consent=ask`, `simulateFail`,
+`mmSimulateFail`).
+
+## Tests
+
+```bash
+npm test                              # harness (23 cases) then minimap2 part parity
+node test/run.mjs <name-filter>       # a subset of the harness
+```
+
+`test/run.mjs` starts `serve.mjs`, drives `web/index.html?demo=...` in headless
+Chrome, waits for `window.__result`, and checks record counts and SHA-256 of the
+outputs against `test/cases.json`; every truth file under `testdata/` was
+produced by the native tools. Cases that need the large indexes
+(`testdata/human.ryxdi`, `testdata/chm13_sr_parts.mmi`) are skipped when those
+are absent. `test/mm_parts_parity.mjs` mounts every part of the multi-part index
+the way `mm_worker.js` does and requires the hit set to equal native minimap2's
+(`testdata/sr_parts_truth/`). Failing outputs are kept under `scratch/test-out/`.
+Timing cases on real data: `CASES=test/perf-cascade.json npm test`.
+
+## Deploying
+
+The page is served from the-miint.github.io. After rebuilding, copy `web/`
+(without `package.json`) over that repository's `docs/rype/` and open a pull
+request there; MkDocs copies the directory verbatim and GitHub Pages serves it
+with no special headers.
+
+## License
+
+BSD-3-Clause, see [`LICENSE`](LICENSE). Third-party components and their
+licenses are listed in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
