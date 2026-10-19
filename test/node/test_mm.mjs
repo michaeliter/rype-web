@@ -5,7 +5,7 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readIds } from './test/util.mjs';
+import { readIds } from '../util.mjs';
 const require = createRequire(import.meta.url);
 const [,, partPath, r1Path, r2Arg, truthPath] = process.argv;
 const r2Path = r2Arg && r2Arg !== '-' ? r2Arg : null;

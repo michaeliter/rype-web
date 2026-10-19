@@ -6,7 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 [ -f third_party/minimap2/Makefile ] || git submodule update --init third_party/minimap2
 cd third_party/minimap2
-source "$HOME/rype-work/emsdk/emsdk_env.sh" >/dev/null 2>&1
+EMSDK_ENV="${EMSDK_ENV:-$HOME/rype-work/emsdk/emsdk_env.sh}"
+[ -f "$EMSDK_ENV" ] || { echo "emsdk not found: set EMSDK_ENV to your emsdk_env.sh (got $EMSDK_ENV)" >&2; exit 1; }
+source "$EMSDK_ENV" >/dev/null 2>&1
 make clean >/dev/null
 make libminimap2.a CC=emcc AR=emar \
   "CFLAGS=-O2 -Wall -Wc++-compat -msimd128 -msse -msse2 --use-port=zlib" \

@@ -22,7 +22,7 @@ Read `README.md` first; this file adds what is not obvious from the code.
 
 ```bash
 bash build.sh                   # rype_mask + mm_filter; initialises submodules if needed
-bash build_mm2.sh               # libminimap2.a only (build.sh calls it when the .a is missing)
+bash build_mm2.sh               # libminimap2.a only (build.sh runs it every time)
 npm test                        # harness + minimap2 part parity; ~3 min with the small fixtures
 node test/run.mjs two-pass      # cases whose name contains the filter
 node test/node/test_node.mjs filter <index.ryxdi> <r1.fq> [r2.fq|-] <out_prefix> [thr]

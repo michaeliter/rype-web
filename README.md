@@ -84,15 +84,15 @@ Measurements, design notes and the history behind these choices are in
 | `serve.mjs` | Dev server with `Range` and CORS support. |
 | `test/` | Headless harness (`run.mjs`, `cases.json`), minimap2 part parity test, Node-level module tests under `test/node/`, perf case files and the miint SQL cascade used for comparison. |
 | `testdata/` | Small indexes and FASTQ fixtures with truth files produced by the native tools. |
-| `tools/` | `mmi_parts.py` (writes `.parts.json` for a multi-part `.mmi`), `mm_parts_truth.sh`, `measure_reads.mjs`. |
+| `tools/` | `mmi_parts.py` (writes `.parts.json` for a multi-part `.mmi`), `mm_parts_truth.sh`, `crate_licenses.py` (crate list for the licenses file), `measure_reads.mjs`. |
 | `THIRD_PARTY_LICENSES.md` | Licenses of everything compiled into or shipped with the page. |
 | `docs/notes.md` | Dated measurements and design history. |
 
 ## Building
 
 Prerequisites: [emsdk](https://emscripten.org/docs/getting_started/downloads.html)
-installed at `~/rype-work/emsdk` (or edit the `source` line in the build scripts),
-a Rust toolchain with `rustup target add wasm32-unknown-emscripten`, and Node 20+.
+(set `EMSDK_ENV=/path/to/emsdk_env.sh` if it is not at `~/rype-work/emsdk`), a Rust
+toolchain with `rustup target add wasm32-unknown-emscripten`, and Node 20+.
 
 ```bash
 git clone --recurse-submodules https://github.com/the-miint/rype-web
@@ -103,8 +103,8 @@ bash build.sh          # builds librype.a and libminimap2.a for wasm, then both 
 
 `build.sh` compiles RYpe as a `wasm32-unknown-emscripten` static library, links it
 with `src/mask.c` and `src/gz.c` into `web/rype_mask.{js,wasm}`, then links
-`src/mm.c` with `libminimap2.a` (built once by `build_mm2.sh` with wasm SIMD128
-standing in for SSE2) into `web/mm_filter.{js,wasm}`. Both link with
+`src/mm.c` with `libminimap2.a` (rebuilt each time by `build_mm2.sh`, with wasm
+SIMD128 standing in for SSE2) into `web/mm_filter.{js,wasm}`. Both link with
 `-sMAXIMUM_MEMORY=4GB` and `-sABORTING_MALLOC=1` (`emcc_flags.sh`): the 4 GB
 wasm32 heap is why batches are capped and why a single-part minimap2 index
 cannot be used. The `.js` files are Emscripten's generated runtime glue.

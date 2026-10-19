@@ -16,7 +16,7 @@ have since moved: `test_node.mjs`, `test_mm.mjs`, `test_gz.mjs` are under
 ## Required rype changes (historical)
 
 These changes now live on the-miint/RYpe pull request #30 (branch `michaeliter/wasm32-support`),
-which `third_party/RYpe` pins; the `rype-wasm-fixes.patch` file mentioned below was removed
+which `third_party/RYpe` pins; the `rype-wasm-fixes.patch` file the original text referred to was removed
 once the submodule replaced it.
 
 1. `File::try_clone` is unconditionally Unsupported on wasm32 in Rust std, and

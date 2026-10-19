@@ -16,6 +16,10 @@ M.NODEFS.stream_ops.read = function(stream, buffer, offset, length, position) {
 M.ccall('mask_load_index', 'number', ['string'], ['/index']);
 const loadBytes = bytes; bytes = 0; chunks.clear();
 const fq = fs.readFileSync(fastqPath);
-const inPtr = M._malloc(fq.length); M.HEAPU8.set(fq, inPtr); const outPP = M._malloc(16);
-M.ccall('mask_filter', 'number', ['number','number','number','number','number','number','number'], [inPtr, fq.length, 0.1, outPP, outPP+4, outPP+8, outPP+12]);
-console.log(`reads=${M.HEAPU32[(outPP+8)>>>2]} footer/load=${(loadBytes/1e6).toFixed(1)}MB batch_read=${(bytes/1e6).toFixed(0)}MB distinct_1MB_chunks=${chunks.size}`);
+const inPtr = M._malloc(fq.length); M.HEAPU8.set(fq, inPtr);
+// mask_filter(buf1, len1, buf2, len2, threshold, out1, out1_len, out2, out2_len, n_total, n_removed, hist, kept_bins)
+const out = M._malloc(7 * 4), hist = M._malloc(102 * 4); // seven output slots, then the 102-bin histogram
+const rc = M.ccall('mask_filter', 'number', Array(13).fill('number'),
+  [inPtr, fq.length, 0, 0, 0.1, out, out + 4, out + 8, out + 12, out + 16, out + 20, hist, out + 24]);
+if (rc !== 0) throw new Error(M.ccall('mask_last_error', 'string', [], []));
+console.log(`reads=${M.HEAPU32[(out + 16) >>> 2]} removed=${M.HEAPU32[(out + 20) >>> 2]} footer/load=${(loadBytes/1e6).toFixed(1)}MB batch_read=${(bytes/1e6).toFixed(0)}MB distinct_1MB_chunks=${chunks.size}`);
