@@ -28,7 +28,9 @@ license name and pointer only.
 ## RYpe
 
 The RY partitioning engine: k-mer containment screening of reads against a
-`.ryxdi` index. Compiled to wasm as a static library and called from
+`.ryxdi` index (in the published bundle, a human pangenome built from the 94
+HPRC release 1 haplotype assemblies plus hg38 and T2T-CHM13 v2.0). Compiled to
+wasm as a static library and called from
 `src/mask.c` (`mask_filter`, `mask_classify`).
 
 - Repository: https://github.com/the-miint/RYpe

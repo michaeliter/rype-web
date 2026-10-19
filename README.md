@@ -3,8 +3,9 @@
 Remove human reads from a FASTQ without the reads leaving your computer.
 The page at **https://the-miint.github.io/rype/** runs the whole pipeline in the
 browser: a [RYpe](https://github.com/the-miint/RYpe) k-mer screen against a
-T2T-CHM13 v2.0 index, then, for short reads, a
-[minimap2](https://github.com/the-miint/minimap2) pass over what survives.
+human pangenome index, then, for short reads, a
+[minimap2](https://github.com/the-miint/minimap2) pass against T2T-CHM13 v2.0
+over what survives.
 Single- or paired-end FASTQ (plain or gzip) in, filtered FASTQ out. Nothing is
 uploaded anywhere.
 
@@ -38,7 +39,9 @@ under `docs/rype/`.
 1. **Index.** A bundle directory holds `index.json`
    (`{ "rype": "<dir>.ryxdi/", "minimap2": "<file>.mmi" }`) next to a RYpe
    `.ryxdi` directory and a multi-part minimap2 `.mmi` with a `.parts.json`
-   listing its part byte ranges. A local `.ryxdi` folder and `.mmi` can be
+   listing its part byte ranges. In the published bundle the RYpe index is a
+   human pangenome built from the 94 haplotype assemblies of HPRC release 1
+   plus hg38 and T2T-CHM13 v2.0; the minimap2 index is T2T-CHM13 v2.0 alone. A local `.ryxdi` folder and `.mmi` can be
    picked instead. The index files are served to the wasm modules through
    Emscripten's WORKERFS from `File` or OPFS handles, read lazily by byte range
    with an 8 MB read-ahead cache (`web/classifier.js`), never copied into memory.
