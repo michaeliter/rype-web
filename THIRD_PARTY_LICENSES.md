@@ -32,8 +32,8 @@ The RY partitioning engine: k-mer containment screening of reads against a
 `src/mask.c` (`mask_filter`, `mask_classify`).
 
 - Repository: https://github.com/the-miint/RYpe
-- Version: submodule `third_party/RYpe`, branch `michaeliter/wasm32-support`
-  (the-miint/RYpe pull request #30)
+- Version: branch `michaeliter/wasm32-support` (the-miint/RYpe pull request #30), pinned at
+  the submodule SHA in `.gitmodules` / `git submodule status third_party/RYpe`
 - License: BSD-3-Clause
 
 ### BSD 3-Clause License
@@ -76,8 +76,8 @@ license.
 
 - Repository: https://github.com/the-miint/minimap2 (fork of
   https://github.com/lh3/minimap2)
-- Version: submodule `third_party/minimap2`, branch `v2.30-miint`, commit
-  `0477498b33ae54d1a7955d1de4d94ef77f9cea13`
+- Version: branch `v2.30-miint`, pinned at the submodule SHA in `.gitmodules` /
+  `git submodule status third_party/minimap2`
 - License: MIT
 
 ### Citation
