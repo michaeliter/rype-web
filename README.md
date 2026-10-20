@@ -41,7 +41,8 @@ under `docs/rype/`.
    `.ryxdi` directory and a multi-part minimap2 `.mmi` with a `.parts.json`
    listing its part byte ranges. In the published bundle the RYpe index is a
    human pangenome built from the 94 haplotype assemblies of HPRC release 1
-   plus hg38 and T2T-CHM13 v2.0; the minimap2 index is T2T-CHM13 v2.0 alone. A local `.ryxdi` folder and `.mmi` can be
+   plus hg38, T2T-CHM13 v2.0 and the GENCODE v47 transcripts; the minimap2
+   index is T2T-CHM13 v2.0 alone. A local `.ryxdi` folder and `.mmi` can be
    picked instead. The index files are served to the wasm modules through
    Emscripten's WORKERFS from `File` or OPFS handles, read lazily by byte range
    with an 8 MB read-ahead cache (`web/classifier.js`), never copied into memory.

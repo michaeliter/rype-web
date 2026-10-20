@@ -29,7 +29,8 @@ license name and pointer only.
 
 The RY partitioning engine: k-mer containment screening of reads against a
 `.ryxdi` index (in the published bundle, a human pangenome built from the 94
-HPRC release 1 haplotype assemblies plus hg38 and T2T-CHM13 v2.0). Compiled to
+HPRC release 1 haplotype assemblies plus hg38, T2T-CHM13 v2.0 and the GENCODE
+v47 transcripts). Compiled to
 wasm as a static library and called from
 `src/mask.c` (`mask_filter`, `mask_classify`).
 
