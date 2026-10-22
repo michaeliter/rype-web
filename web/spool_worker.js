@@ -3,9 +3,11 @@
 // streaming 256 MB batches through it, createSyncAccessHandle() for a new part never
 // resolved (measured on 20M pairs; the same code is fine on small inputs). Nothing else
 // runs here, so the calls complete, and the coordinator only exchanges messages.
+// The directory is opened here by name: Safari cannot structured-clone a FileSystemHandle
+// across postMessage ("The object can not be cloned"), Chrome can.
 let dir = null, queue = Promise.resolve(); // messages are handled strictly in order
 const handle = async (m) => {
-  if (m.type === 'open') dir = m.dir;
+  if (m.type === 'open') dir = await (await navigator.storage.getDirectory()).getDirectoryHandle(m.dirName);
   else if (m.type === 'write') {
     const fh = await dir.getFileHandle(m.name, { create: true });
     const a = await fh.createSyncAccessHandle();

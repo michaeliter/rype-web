@@ -166,11 +166,11 @@ class Sink {
 // it (see that file); here a part is just a File. Without OPFS the parts stay in
 // memory and are dropped the same way. Quacks like a File for RecordReader.
 class SpoolIO {
-  constructor(dir) {
+  constructor(dirName) { // the OPFS directory's name under the root; handles do not clone in Safari
     this.w = new Worker('spool_worker.js?v=' + Date.now()); this.seq = 0; this.pending = new Map();
     this.w.onmessage = (e) => { const d = e.data, p = this.pending.get(d.seq); if (!p) return; this.pending.delete(d.seq); d.type === 'error' ? p.reject(new Error('spool: ' + d.msg)) : p.resolve(d.file); };
     this.w.onerror = (e) => { for (const p of this.pending.values()) p.reject(new Error('spool worker crashed: ' + (e.message || e))); this.pending.clear(); };
-    this.w.postMessage({ type: 'open', dir });
+    this.w.postMessage({ type: 'open', dirName });
   }
   write(name, u8) { // transfers u8's buffer; resolves to the written part as a File
     const seq = this.seq++;
@@ -435,7 +435,7 @@ async function run(msg) {
     ? [`${base}.classified.tsv${ext}`]
     : [`${base}.masked${r2 ? '.R1' : ''}.fastq${ext}`, ...(r2 ? [`${base}.masked.R2.fastq${ext}`] : [])];
   const twoPass = mode === 'filter' && mm && mm.parts.length;
-  const io = twoPass && dir ? new SpoolIO(dir) : null; // intermediates; without OPFS the parts stay in memory
+  const io = twoPass && dir ? new SpoolIO(dir.name) : null; // intermediates; without OPFS the parts stay in memory
   const spoolOf = (yes) => yes ? (io || true) : null;
   const midNames = (tag) => [`${base}.${tag}${r2 ? '.R1' : ''}.fastq`, ...(r2 ? [`${base}.${tag}.R2.fastq`] : [])];
   // Pass 2 sweeps `conc` parts at a time; each sweep is one progress step, as is pass 1.
