@@ -82,6 +82,10 @@ skips for the human and CHM13 cases; that is expected, not a failure.
 - **Memory fallback state.** `localStorage` `rype.attempt` records the minimap2
   width of a run in progress; finding it on load means the tab was killed
   mid-run (Chrome OOM, unobservable from inside the page) and sets `rype.mmCap`.
+- **Heap probe.** `probe_worker.js` grows a throwaway `WebAssembly.Memory` until
+  the browser refuses; the result caps the batch size and, below 3 GiB, disables
+  the minimap2 pass (`mmFits()`). Safari's limit is what first exposed this.
+  `?heapGB=` overrides it for tests.
 - **Progress.** Percentages are by work done (bytes dispatched to classifiers,
   records swept by minimap2), capped at 99% until the run completes.
 

@@ -24,8 +24,12 @@ under `docs/rype/`.
   16 GB of RAM. On Chromium the page scales the worker count down when
   `navigator.deviceMemory` reports less, and halves the minimap2 width after a
   worker runs out of memory. Browsers that do not report memory (Safari,
-  Firefox) get one worker per pass, about 3 GB; `?workers=N&mmWorkers=N` raises
-  it.
+  Firefox) get one worker per pass with 256 MB batches, about 2 GB;
+  `?workers=N&mmWorkers=N&batchMB=N` raises it. At load the page also measures
+  how much wasm memory the browser lets one worker grow to (`probe_worker.js`)
+  and caps the batch size to fit; if that is under 3 GiB a minimap2 index part
+  cannot load, so short reads are filtered by RYpe alone and the Filter card
+  says so.
 - **Storage**: with your consent the index is downloaded once into the browser's
   private storage and reused on later visits: 1.8 GB for the RYpe index, plus
   9 GB for the minimap2 index on the first short-read run. Allow roughly 15 GB
@@ -77,7 +81,7 @@ Measurements, design notes and the history behind these choices are in
 | Path | What it is |
 |---|---|
 | `web/index.html` | The page: UI, consent dialog, progress, report. Reads the demo query parameters listed under Tests. |
-| `web/worker.js`, `web/classifier.js`, `web/mm_worker.js`, `web/spool_worker.js`, `web/gzip_worker.js`, `web/fsutil.js` | Coordinator, RYpe workers, minimap2 workers, OPFS spool, gzip pool, shared WORKERFS and byte-range helpers. |
+| `web/worker.js`, `web/classifier.js`, `web/mm_worker.js`, `web/spool_worker.js`, `web/gzip_worker.js`, `web/probe_worker.js`, `web/fsutil.js` | Coordinator, RYpe workers, minimap2 workers, OPFS spool, gzip pool, wasm heap probe, shared WORKERFS and byte-range helpers. |
 | `web/rype_mask.{js,wasm}` | **Built artifact.** RYpe + `src/mask.c` + `src/gz.c`, produced by `build.sh`. Not committed. |
 | `web/mm_filter.{js,wasm}` | **Built artifact.** minimap2 + `src/mm.c`, produced by `build_mm2.sh` and `build.sh`. Not committed. |
 | `web/vendor/anime.umd.js` | anime.js 4.5.0, the unminified UMD bundle from npm, unmodified. |
@@ -134,7 +138,8 @@ open http://127.0.0.1:8765/web/index.html
 
 Query parameters: `?index=<bundle url>` replaces the default bundle;
 `?workers=N`, `?mmWorkers=N`, `?batchMB=N` override the defaults;
-`?cache=0` streams a URL index instead of storing it. The `?demo=1` hooks used
+`?cache=0` streams a URL index instead of storing it; `?heapGB=N` stands in for
+the wasm heap probe. The `?demo=1` hooks used
 by the tests drive the same worker paths without file dialogs, e.g.
 `?demo=1&idx=wol2_12&src=url&paired=1&mode=classify&thr=0.1&batchMB=0.5`
 (`idx`, `src=url|local`, `paired`, `mode=filter|classify`, `thr`, `gz=1|multi`,

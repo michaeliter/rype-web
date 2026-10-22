@@ -227,6 +227,17 @@ function spawnWorker() {
   worker.onmessage = onWorkerMessage;
 }
 spawnWorker();
+// How much wasm heap one worker may grow to (probe_worker.js). Chrome allows the 4 GB
+// wasm32 maximum; Safari may allow less, which showed up as rype trapping on heap growth.
+// ?heapGB= stands in for the probe (tests, and to try a smaller limit by hand).
+const GIB = 2 ** 30, MM_PART_HEAP = 3 * GIB; // a CHM13 part needs up to ~2.8 GiB loaded
+let heapBytes = 4 * GIB;
+const heapProbe = new Promise((resolve) => {
+  const q = parseFloat(qs.get('heapGB')); if (q > 0) return resolve(q * GIB);
+  const w = new Worker('probe_worker.js?v=' + Date.now()), done = (b) => { w.terminate(); resolve(b); };
+  w.onmessage = (e) => done(e.data.bytes); w.onerror = () => done(4 * GIB); setTimeout(() => done(4 * GIB), 15000);
+}).then((b) => { heapBytes = b; window.__heapBytes = b; dev(`heap probe: ${(b / GIB).toFixed(1)} GiB per worker` + (b < MM_PART_HEAP ? '; minimap2 pass disabled' : '')); updatePlan(); return b; });
+const mmFits = () => heapBytes >= MM_PART_HEAP;
 let indexReady = false, running = false, mmUrlOverride = null, indexBuckets = 1, indexDownloading = false, downloadPct = 0; // mmUrlOverride: ?mmi= for the harness, a second pass without a bundle
 const fmt = (n) => n.toLocaleString();
 const fmtDur = (ms) => { const t = Math.round(ms / 1000); return t < 60 ? `${t} s` : t < 3600 ? `${Math.floor(t / 60)} min ${t % 60} s` : `${Math.floor(t / 3600)} h ${Math.floor(t % 3600 / 60)} min`; };
@@ -436,12 +447,13 @@ function updatePlan() {
   const thr = `containment threshold ${threshold()}`;
   if (mode === 'classify') el.textContent = `Classify with RYpe, ${thr}.`;
   else if (rt === 'long') el.textContent = `Long reads: RYpe picks out anything at or above ${thr}.`;
+  else if (mmAvailable() && !mmFits()) el.textContent = `Short reads: RYpe only (${thr}). This browser allows only ${(heapBytes / GIB).toFixed(1)} GB of memory per worker, too little for the minimap2 check.`;
   else if (mmAvailable()) el.textContent = `Short reads: RYpe first (${thr}), then minimap2 double-checks what survives.`;
   else el.textContent = `Short reads: RYpe only (${thr}). This index has no minimap2 part, so there is no second check.`;
 }
 // Build the second-pass config: the part byte ranges come from <index>.parts.json (tools/mmi_parts.py).
 async function mmConfig() {
-  if (mode !== 'filter' || radio('rt') !== 'short' || !mmAvailable()) return null;
+  if (mode !== 'filter' || radio('rt') !== 'short' || !mmAvailable() || !mmFits()) return null;
   const url = mmUrl();
   if (url) {
     const r = await fetch(url + '.parts.json'); if (!r.ok) throw new Error(`${r.status} fetching ${url}.parts.json`);
@@ -482,7 +494,7 @@ async function startRun() {
     return;
   }
   let mm;
-  try { await detecting; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
+  try { await detecting; await heapProbe; if (!radio('rt')) throw new Error('choose the read type'); mm = await mmConfig(); }
   catch (e) { setRunStatus('Error: ' + e.message, true); window.__error = e.message; return; }
   setRunning(true);
   $('downloads').innerHTML = ''; $('barRow').hidden = false; bars.run.set(0); $('pct').textContent = '0%'; $('reportCard').hidden = true;
@@ -681,9 +693,13 @@ function workerCount() {
   const byMemory = gb < 8 ? Math.max(1, Math.floor(gb / 4)) : 4; // ~2 GB per worker, half of RAM
   return Math.min(4, byCores, byMemory);
 }
+// A batch needs ~6 x its size of heap, so the probe caps it: (heap - 512 MB) / 6, in 64 MB
+// steps, never below 64 MB. Browsers that do not report memory get 256 MB, not the
+// single-worker 512 MB, since their heap limit is the unknown that bit Safari.
 function batchBytes() {
-  const small = memoryGB() <= 2;
-  const mb = parseFloat(qs.get('batchMB')) || (small ? 128 : workerCount() > 1 ? 256 : 512);
+  const small = memoryGB() <= 2, unknown = !navigator.deviceMemory;
+  let mb = parseFloat(qs.get('batchMB')) || (small ? 128 : unknown || workerCount() > 1 ? 256 : 512);
+  if (!qs.get('batchMB')) mb = Math.max(64, Math.min(mb, Math.floor((heapBytes / 2 ** 20 - 512) / 6 / 64) * 64));
   return Math.min(mb, 700) * 1024 * 1024;
 }
 // Dev hook: ?demo=1 loads test data from the local server through the same paths as the
