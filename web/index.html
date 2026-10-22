@@ -463,7 +463,7 @@ async function mmConfig() {
 // ?mmWorkers= overrides).
 function mmWorkerCount() {
   const n = parseInt(qs.get('mmWorkers'), 10); if (n > 0) return n;
-  const gb = navigator.deviceMemory, byMemory = gb && gb < 8 ? Math.max(1, Math.floor((gb - 1) / 3)) : Infinity;
+  const gb = memoryGB(), byMemory = gb < 8 ? Math.max(1, Math.floor((gb - 1) / 3)) : Infinity;
   return Math.max(1, Math.min(workerCount(), byMemory, mmCap()));
 }
 const store = { get: (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -667,18 +667,22 @@ function onWorkerMessage(e) {
 // a single worker gets 512 MB batches. Overrides: ?workers=N&batchMB=N.
 // navigator.deviceMemory is Chromium-only, a power of two clamped to 8, so it can
 // only shrink the defaults on machines below 8 GB; 8 GB and up all look alike and
-// get the full default. If a classifier runs out of memory, the coordinator drops
-// it and retries the batch on the remaining workers (see worker.js).
+// get the full default. Browsers that do not report it (Safari, Firefox) are treated
+// as small machines: one worker with a 512 MB batch, about 3 GB, because Safari runs
+// every worker of a tab in one process and kills the page past a few GB with nothing
+// the page can observe. If a classifier runs out of memory, the coordinator drops it
+// and retries the batch on the remaining workers (see worker.js).
+function memoryGB() { return navigator.deviceMemory || 4; } // unknown counts as small
 function workerCount() {
   const n = parseInt(qs.get('workers'), 10);
   if (n > 0) return n;
   const byCores = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
-  const gb = navigator.deviceMemory;
-  const byMemory = gb && gb < 8 ? Math.max(1, Math.floor(gb / 4)) : 4; // ~2 GB per worker, half of RAM
+  const gb = memoryGB();
+  const byMemory = gb < 8 ? Math.max(1, Math.floor(gb / 4)) : 4; // ~2 GB per worker, half of RAM
   return Math.min(4, byCores, byMemory);
 }
 function batchBytes() {
-  const small = navigator.deviceMemory && navigator.deviceMemory <= 2;
+  const small = memoryGB() <= 2;
   const mb = parseFloat(qs.get('batchMB')) || (small ? 128 : workerCount() > 1 ? 256 : 512);
   return Math.min(mb, 700) * 1024 * 1024;
 }

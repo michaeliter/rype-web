@@ -36,6 +36,7 @@ try {
     page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
     const t0 = Date.now();
     const demo = c.uploads ? 'manual' : '1';
+    if (c.navigator) await page.evaluateOnNewDocument((nav) => { for (const [k, v] of Object.entries(nav)) Object.defineProperty(navigator, k, { get: () => v ?? undefined, configurable: true }); }, c.navigator); // e.g. {"deviceMemory": null} to look like Safari
     await page.goto(`http://localhost:${port}/web/index.html?demo=${demo}&${c.query}&v=${Date.now()}`);
     if (c.click) { await page.waitForSelector(c.click, { visible: true, timeout: 10000 }); await page.click(c.click); } // e.g. a consent-dialog button the demo waits on
     if (c.uploads) { // real disk-backed Files via the pickers, as a user would (paths may be absolute)
@@ -97,6 +98,8 @@ try {
       const e = c.expect || {};
       for (const k of ['total', 'affected', 'rypeRemoved', 'mmRemoved', 'readType', 'threshold']) if (e[k] != null && r[k] !== e[k]) problems.push(`${k}: got ${r[k]}, want ${e[k]}`);
       if (e.cached != null && r.mount?.cached !== e.cached) problems.push(`index cached: got ${r.mount?.cached}, want ${e.cached}`); // stored in OPFS vs streamed by range
+      if (e.workers != null && r.phases?.workers !== e.workers) problems.push(`rype workers: got ${r.phases?.workers}, want ${e.workers}`); // the defaults the page chose
+      if (e.mmWorkers != null && r.phases?.mm?.concurrency !== e.mmWorkers) problems.push(`minimap2 workers: got ${r.phases?.mm?.concurrency}, want ${e.mmWorkers}`);
       if (e.files) e.files.forEach((ef, i) => {
         const f = r.files[i];
         if (!f) return problems.push(`file ${i} missing`);

@@ -23,7 +23,9 @@ under `docs/rype/`.
 - **Memory**: the default of 4 RYpe workers plus 4 minimap2 workers wants about
   16 GB of RAM. On Chromium the page scales the worker count down when
   `navigator.deviceMemory` reports less, and halves the minimap2 width after a
-  worker runs out of memory.
+  worker runs out of memory. Browsers that do not report memory (Safari,
+  Firefox) get one worker per pass, about 3 GB; `?workers=N&mmWorkers=N` raises
+  it.
 - **Storage**: with your consent the index is downloaded once into the browser's
   private storage and reused on later visits: 1.8 GB for the RYpe index, plus
   9 GB for the minimap2 index on the first short-read run. Allow roughly 15 GB

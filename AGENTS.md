@@ -43,6 +43,9 @@ skips for the human and CHM13 cases; that is expected, not a failure.
   that must appear in the `[rype]` console lines).
 - `requires`: paths that must exist or the case is skipped. `uploads`: real
   files pushed through the pickers with puppeteer `uploadFile` (`demo=manual`).
+- `navigator`: fields to override on `navigator` before the page loads
+  (`{"deviceMemory": null}` makes Chrome look like Safari). `expect.workers` and
+  `expect.mmWorkers` check the counts the page chose.
 - `click`: a CSS selector clicked once visible, before the run starts (the
   consent dialog buttons `#consentYes` / `#consentNo`). `cancel: true |
   "<stage>"` presses Cancel at that stage and checks the rerun. `clear: "<picker
