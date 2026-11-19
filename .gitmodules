@@ -4,5 +4,5 @@
 	branch = v2.30-miint
 [submodule "third_party/RYpe"]
 	path = third_party/RYpe
-	url = https://github.com/michaeliter/RYpe.git
-	branch = michaeliter/wasm32-support
+	url = https://github.com/the-miint/RYpe.git
+	branch = main

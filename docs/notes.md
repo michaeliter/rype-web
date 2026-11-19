@@ -15,7 +15,7 @@ have since moved: `test_node.mjs`, `test_mm.mjs`, `test_gz.mjs` are under
 
 ## Required rype changes (historical)
 
-These changes now live on the-miint/RYpe pull request #30 (branch `michaeliter/wasm32-support`),
+These changes were merged in the-miint/RYpe pull request #30 and are in the 1.0.0 release,
 which `third_party/RYpe` pins; the `rype-wasm-fixes.patch` file the original text referred to was removed
 once the submodule replaced it.
 

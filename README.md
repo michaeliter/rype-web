@@ -88,7 +88,7 @@ Measurements, design notes and the history behind these choices are in
 | `web/THIRD_PARTY_LICENSES.txt` | **Built artifact.** Copy of `THIRD_PARTY_LICENSES.md` made by `build.sh`, linked from the page footer. |
 | `web/logo.png` | Hero illustration. |
 | `src/` | C shims: `mask.c` (RYpe filter/classify), `gz.c` (multi-member gunzip), `mm.c` (minimap2 part loading and paired mapping), `rype.h` (copied from RYpe by `build.sh`). |
-| `third_party/RYpe` | Git submodule: RYpe on the `michaeliter/wasm32-support` branch (the-miint/RYpe PR #30). |
+| `third_party/RYpe` | Git submodule: the-miint/RYpe `main` (the wasm32 support merged in PR #30 is part of the 1.0.0 release). |
 | `third_party/minimap2` | Git submodule: the-miint/minimap2, branch `v2.30-miint`. |
 | `build.sh`, `build_mm2.sh`, `emcc_flags.sh` | Build scripts and the link flags shared by both modules. |
 | `serve.mjs` | Dev server with `Range` and CORS support. |

@@ -35,7 +35,7 @@ wasm as a static library and called from
 `src/mask.c` (`mask_filter`, `mask_classify`).
 
 - Repository: https://github.com/the-miint/RYpe
-- Version: branch `michaeliter/wasm32-support` (the-miint/RYpe pull request #30), pinned at
+- Version: `main` (1.0.0; the wasm32 support from pull request #30 is included), pinned at
   the submodule SHA in `.gitmodules` / `git submodule status third_party/RYpe`
 - License: BSD-3-Clause
 
@@ -244,20 +244,18 @@ data tables, and `ryu` is taken under Apache-2.0. Apache Arrow and Parquet ship
 a NOTICE, reproduced below as the license requires. Each crate's own license
 file is in its crates.io package.
 
-- **MIT OR Apache-2.0**: ahash 0.8.12, anstream 1.0.0, anstyle 1.0.14, anstyle-parse 1.0.0, anstyle-query 1.1.5, anyhow 1.0.104, base64 0.23.1, bitflags 2.13.2, cc 1.9.0, cfg-if 1.0.5, chrono 0.4.45, clap 4.6.7, clap_builder 4.6.7, clap_derive 4.6.7, clap_lex 1.1.1, colorchoice 1.0.5, const-random 0.1.18, const-random-macro 0.1.16, crc32fast 1.5.2, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, defmt 1.2.0, defmt-macros 1.2.0, defmt-parser 1.1.0, either 1.19.0, env_filter 2.0.0, env_logger 0.11.11, find-msvc-tools 0.1.15, flate2 1.1.10, getrandom 0.2.17, getrandom 0.3.4, half 2.7.1, hashbrown 0.17.1, heck 0.5.0, iana-time-zone 0.1.65, is_terminal_polyfill 1.70.2, jobserver 0.1.35, libc 0.2.191, log 0.4.34, num-bigint 0.5.1, num-complex 0.4.6, num-integer 0.1.47, num-traits 0.2.19, once_cell 1.21.4, pkg-config 0.3.34, proc-macro2 1.0.107, quote 1.0.47, rayon 1.12.0, rayon-core 1.13.0, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, rustc_version 0.4.1, semver 1.0.28, seq-macro 0.3.6, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_spanned 1.1.2, shlex 2.0.1, syn 2.0.119, syn 3.0.9, thiserror 2.0.21, thiserror-impl 2.0.21, toml 1.1.8+spec-1.1.0, toml_datetime 1.1.2+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.1.3+spec-1.1.0
+- **MIT OR Apache-2.0**: ahash 0.8.12, anstream 1.0.0, anstyle 1.0.14, anstyle-parse 1.0.0, anstyle-query 1.1.5, anyhow 1.0.104, base64 0.23.1, bitflags 2.13.2, cc 1.9.0, cfg-if 1.0.5, chrono 0.4.45, clap 4.6.7, clap_builder 4.6.7, clap_derive 4.6.7, clap_lex 1.1.1, colorchoice 1.0.5, const-random 0.1.18, const-random-macro 0.1.16, crossbeam-deque 0.8.8, crossbeam-epoch 0.9.21, crossbeam-utils 0.8.23, defmt 1.2.0, defmt-macros 1.2.0, defmt-parser 1.1.0, either 1.19.0, env_filter 2.0.0, env_logger 0.11.11, find-msvc-tools 0.1.15, flate2 1.1.10, getrandom 0.2.17, getrandom 0.3.4, half 2.7.1, hashbrown 0.17.1, heck 0.5.0, iana-time-zone 0.1.65, is_terminal_polyfill 1.70.2, jobserver 0.1.35, libc 0.2.191, log 0.4.34, num-bigint 0.5.1, num-complex 0.4.6, num-integer 0.1.47, num-traits 0.2.19, once_cell 1.21.4, pkg-config 0.3.34, proc-macro2 1.0.107, quote 1.0.47, rayon 1.12.0, rayon-core 1.13.0, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, rustc_version 0.4.1, semver 1.0.28, seq-macro 0.3.6, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_spanned 1.1.2, shlex 2.0.1, syn 2.0.119, syn 3.0.9, thiserror 2.0.21, thiserror-impl 2.0.21, toml 1.1.8+spec-1.1.0, toml_datetime 1.1.2+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.1.3+spec-1.1.0
 - **Apache-2.0**: arrow 59.3.1, arrow-arith 59.3.1, arrow-buffer 59.3.1, arrow-cast 59.3.1, arrow-data 59.3.1, arrow-ipc 59.3.1, arrow-ord 59.3.1, arrow-row 59.3.1, arrow-schema 59.3.1, arrow-select 59.3.1, arrow-string 59.3.1, flatbuffers 25.12.19, parquet 59.3.1
-- **MIT**: atoi 2.0.0, bytes 1.12.1, crunchy 0.2.4, libm 0.2.16, simd-adler32 0.3.10, strsim 0.11.1, twox-hash 2.1.5, winnow 1.0.4, zstd 0.13.3
+- **MIT**: atoi 2.0.0, bytes 1.12.1, crunchy 0.2.4, libm 0.2.16, strsim 0.11.1, twox-hash 2.1.5, winnow 1.0.4, zstd 0.13.3
 - **MIT/Apache-2.0**: bitflags 1.3.2, lexical-core 1.0.6, lexical-parse-float 1.0.6, lexical-parse-integer 1.0.6, lexical-util 1.0.7, lexical-write-float 1.0.6, lexical-write-integer 1.0.6, version_check 0.9.5
 - **Apache-2.0 OR MIT**: autocfg 1.5.1, equivalent 1.0.3, indexmap 2.14.2, utf8parse 0.2.2
 - **Unlicense OR MIT**: aho-corasick 1.1.5, jiff 0.2.38, jiff-core 0.1.1, memchr 2.8.3
 - **BSD-3-Clause**: snap 1.1.2, zstd-safe 7.3.0, zstd-sys 2.1.2+zstd.1.5.7
 - **BSD-2-Clause OR Apache-2.0 OR MIT**: zerocopy 0.8.63, zerocopy-derive 0.8.63
 - **(MIT OR Apache-2.0) AND Unicode-3.0**: unicode-ident 1.0.27
-- **0BSD OR MIT OR Apache-2.0**: adler2 2.0.1
 - **Apache-2.0 AND MIT**: arrow-array 59.3.1
 - **Apache-2.0 OR BSL-1.0**: ryu 1.0.23
 - **CC0-1.0**: tiny-keccak 2.0.2
-- **MIT OR Zlib OR Apache-2.0**: miniz_oxide 0.9.1
 - **Zlib**: zlib-rs 0.6.8
 
 ### Apache License 2.0
